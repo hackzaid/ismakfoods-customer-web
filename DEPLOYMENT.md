@@ -73,8 +73,9 @@ Every push to `main` runs:
 3. Packages `.next/standalone`, `.next/static`, and `public` into `deploy/`.
 4. Removes the generated standalone `node_modules` folder from the upload package because CloudLinux requires `node_modules` in the application root to be its own symlink.
 5. Syncs the standalone server files to the cPanel application root with `rsync` over SSH while preserving CloudLinux-managed paths.
-6. Runs `npm install --omit=dev` remotely so dependencies are installed through CloudLinux's `node_modules` symlink.
-7. Touches `tmp/restart.txt` so Passenger/cPanel restarts the Node.js app.
+6. Runs `npm install --omit=dev` remotely when CloudLinux's `node_modules` symlink already exists.
+7. If the symlink is missing, the workflow still deploys files and skips install so cPanel can create the symlink from the Node.js app screen.
+8. Touches `tmp/restart.txt` after a successful remote install so Passenger/cPanel restarts the Node.js app.
 
 You can also run the workflow manually from GitHub Actions using `workflow_dispatch`.
 
@@ -92,10 +93,11 @@ You can also run the workflow manually from GitHub Actions using `workflow_dispa
 
 If a previous deploy created a real `node_modules` directory in the application root, the workflow removes it automatically. After that, CloudLinux still needs its managed `node_modules` symlink before `npm install` can run safely.
 
-If the workflow reports that the symlink is missing:
+If the workflow reports that the symlink is missing, the files have still been deployed. Then:
 
 1. Open the cPanel Node.js app screen.
 2. Confirm the application root is `/home/afripnxq/demo.ismakfoods.com/standalone`.
 3. Save the app.
 4. Click `Run NPM Install` once from cPanel so CloudLinux creates its managed dependency symlink.
-5. Rerun the GitHub Action.
+5. Restart the cPanel Node.js app.
+6. Rerun the GitHub Action after that only if you want the workflow to verify remote install/restart.

@@ -90,7 +90,7 @@ jobs:
             -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
             deploy/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
 
-      - name: Install dependencies and restart cPanel Node.js app
+      - name: Install dependencies when CloudLinux symlink exists
         run: |
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
@@ -100,8 +100,8 @@ jobs:
                rm -rf node_modules; \
              fi && \
              if [ ! -L node_modules ]; then \
-               echo 'CloudLinux node_modules symlink is missing. Save the Node.js app in cPanel, then use Run NPM Install once so CloudLinux creates the symlink.' >&2; \
-               exit 1; \
+               echo 'CloudLinux node_modules symlink is missing. Files were deployed, but dependencies were not installed. Save the Node.js app in cPanel and click Run NPM Install once.'; \
+               exit 0; \
              fi && \
              npm install --omit=dev --no-audit --no-fund && \
              mkdir -p tmp && touch tmp/restart.txt"
