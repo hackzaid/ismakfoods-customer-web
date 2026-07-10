@@ -205,10 +205,16 @@ jobs:
           import re
           import sys
           import time
+          from pathlib import Path
           import urllib.error
           import urllib.request
 
           base_url = os.environ["DEPLOY_VERIFY_URL"].rstrip("/")
+          static_manifest = {
+              f"/_next/static/{line.strip()}"
+              for line in Path("deploy/.deploy-static-files").read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          }
 
           def request(url: str, method: str = "GET") -> tuple[int, str]:
               request = urllib.request.Request(url, method=method, headers={"User-Agent": "github-actions-deploy-smoke"})
@@ -237,6 +243,14 @@ jobs:
 
               if not asset_paths and not errors:
                   errors.append("No /_next/static assets found in deployed HTML.")
+
+              stale_assets = [path for path in asset_paths if path not in static_manifest]
+              if stale_assets:
+                  errors.append(
+                      "Deployed HTML references static assets that are not in the current build. "
+                      "The cPanel Node app is likely stale, not restarted, or pointed at a different application root."
+                  )
+                  errors.extend(f"stale asset: {path}" for path in stale_assets[:10])
 
               for path in asset_paths:
                   url = f"{base_url}{path}"
