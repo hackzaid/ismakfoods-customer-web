@@ -21,6 +21,7 @@ jobs:
       CPANEL_SSH_USER: ${{ secrets.CPANEL_SSH_USER }}
       CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
       CPANEL_SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_PRIVATE_KEY }}
+      CPANEL_SSH_PRIVATE_KEY_B64: ${{ secrets.CPANEL_SSH_PRIVATE_KEY_B64 }}
       CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH }}
 
     steps:
@@ -43,11 +44,20 @@ jobs:
         run: |
           : "${CPANEL_SSH_HOST:?Missing CPANEL_SSH_HOST secret}"
           : "${CPANEL_SSH_USER:?Missing CPANEL_SSH_USER secret}"
-          : "${CPANEL_SSH_PRIVATE_KEY:?Missing CPANEL_SSH_PRIVATE_KEY secret}"
           : "${CPANEL_DEPLOY_PATH:?Missing CPANEL_DEPLOY_PATH secret}"
           mkdir -p ~/.ssh
-          printf '%s\n' "$CPANEL_SSH_PRIVATE_KEY" > ~/.ssh/cpanel_key
+
+          if [ -n "$CPANEL_SSH_PRIVATE_KEY_B64" ]; then
+            printf '%s' "$CPANEL_SSH_PRIVATE_KEY_B64" | base64 --decode > ~/.ssh/cpanel_key
+          elif [ -n "$CPANEL_SSH_PRIVATE_KEY" ]; then
+            printf '%s\n' "$CPANEL_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/cpanel_key
+          else
+            echo "Missing CPANEL_SSH_PRIVATE_KEY_B64 or CPANEL_SSH_PRIVATE_KEY secret." >&2
+            exit 1
+          fi
+
           chmod 600 ~/.ssh/cpanel_key
+          ssh-keygen -y -f ~/.ssh/cpanel_key > /dev/null
           ssh-keyscan -p "${CPANEL_SSH_PORT:-22}" "$CPANEL_SSH_HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy out folder to cPanel
