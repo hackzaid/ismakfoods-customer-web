@@ -2457,22 +2457,40 @@ button.product-image:hover:not(:disabled) {
 .stack-form,
 .address-form,
 .checkout-panel,
-.auth-panel,
 .profile-panel {
   display: grid;
   gap: 13px;
 }
 
+.auth-page-shell {
+  display: grid;
+  margin-top: 18px;
+}
+
 .auth-panel {
-  align-content: start;
-  background:
-    radial-gradient(circle at 92% 8%, rgba(255, 106, 95, 0.09), transparent 10rem),
-    #fff;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.92fr) minmax(360px, 1fr);
+  gap: clamp(28px, 5vw, 64px);
+  align-items: center;
+  min-height: min(720px, calc(100dvh - 150px));
+  padding: clamp(28px, 5vw, 56px);
+  border-radius: 28px;
+  background: #fff;
+  box-shadow: var(--shadow-strong);
+}
+
+.auth-form-side {
+  display: grid;
+  justify-self: center;
+  width: min(360px, 100%);
+  gap: 20px;
 }
 
 .auth-intro {
   display: grid;
-  gap: 8px;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
 }
 
 .auth-intro h1,
@@ -2480,9 +2498,133 @@ button.product-image:hover:not(:disabled) {
   margin: 0;
 }
 
-.auth-note {
-  padding-top: 2px;
-  font-size: 0.82rem;
+.auth-intro h1 {
+  font-size: clamp(2.05rem, 4vw, 3rem);
+  letter-spacing: -0.012em;
+}
+
+.auth-tabs {
+  width: 100%;
+  justify-content: stretch;
+}
+
+.auth-tabs button {
+  flex: 1;
+}
+
+.auth-form {
+  gap: 13px;
+}
+
+.auth-form input {
+  min-height: 46px;
+  border-radius: 999px;
+  padding: 0 18px;
+  background: #fff;
+}
+
+.forgot-password-link {
+  justify-self: end;
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+  color: var(--brand-dark);
+  box-shadow: none;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.forgot-password-link:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.auth-submit {
+  min-height: 48px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: #151312;
+  color: #fff;
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--brand-dark);
+}
+
+.auth-switch-copy {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 5px;
+  margin: clamp(18px, 4vw, 46px) 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.auth-switch-copy button {
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+  color: var(--brand-dark);
+  box-shadow: none;
+  font-weight: 950;
+}
+
+.auth-switch-copy button:hover:not(:disabled) {
+  background: transparent;
+  color: var(--brand);
+  box-shadow: none;
+  transform: none;
+}
+
+.auth-visual-side {
+  position: relative;
+  min-height: 560px;
+  overflow: hidden;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255, 106, 95, 0.12), transparent 12rem),
+    var(--soft);
+}
+
+.auth-visual-side img,
+.auth-visual-side .image-fallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.auth-visual-side > span {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  color: var(--brand);
+  font-size: 2rem;
+  font-weight: 950;
+}
+
+.auth-visual-dots {
+  position: absolute;
+  right: 0;
+  bottom: 18px;
+  left: 0;
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+}
+
+.auth-visual-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.auth-visual-dots span:first-child {
+  width: 28px;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .account-page {
@@ -3489,6 +3631,7 @@ dd {
   .topbar,
   .foodex-hero,
   .menu-hero,
+  .auth-panel,
   .two-column,
   .checkout-layout,
   .product-detail-hero,
@@ -3549,6 +3692,20 @@ dd {
   .product-detail-image {
     min-height: 300px;
   }
+
+  .auth-panel {
+    min-height: auto;
+    gap: 24px;
+  }
+
+  .auth-form-side {
+    order: 2;
+  }
+
+  .auth-visual-side {
+    order: 1;
+    min-height: 260px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -3558,6 +3715,7 @@ dd {
   }
 
   .foodex-hero,
+  .auth-panel,
   .home-section,
   .brand-strip,
   .how-section,
@@ -3747,6 +3905,32 @@ dd {
   .modal-backdrop {
     place-items: end center;
     padding: 10px 0 0;
+  }
+
+  .auth-page-shell {
+    margin-top: 10px;
+  }
+
+  .auth-panel {
+    gap: 18px;
+    padding: 16px;
+  }
+
+  .auth-visual-side {
+    min-height: 180px;
+    border-radius: 18px;
+  }
+
+  .auth-form-side {
+    gap: 15px;
+  }
+
+  .auth-intro h1 {
+    font-size: clamp(1.9rem, 10vw, 2.55rem);
+  }
+
+  .auth-switch-copy {
+    margin-top: 10px;
   }
 
   .product-detail-backdrop {

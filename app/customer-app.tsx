@@ -373,6 +373,7 @@ export default function CustomerApp() {
 
   const logoUrl = getPublicAssetUrl(config?.logoUrl ?? config?.logoPath, config?.baseUrls.restaurant_image_url);
   const branch = config?.branches.find((entry) => entry.id === selectedBranchId) ?? config?.branches[0];
+  const authVisualUrl = products.find((product) => product.imageUrl)?.imageUrl ?? null;
   const total = cartTotal(cart);
   const choices = paymentChoices(config);
 
@@ -563,16 +564,17 @@ export default function CustomerApp() {
           branchId={branch?.id ?? null}
           choices={choices}
           total={total}
+          authVisualUrl={authVisualUrl}
           setSection={setSection}
         />
       ) : null}
 
       {section === "orders" ? (
-        <OrdersSection config={config} token={token} persistToken={persistToken} />
+        <OrdersSection config={config} token={token} persistToken={persistToken} authVisualUrl={authVisualUrl} />
       ) : null}
 
       {section === "profile" ? (
-        <ProfileSection config={config} token={token} persistToken={persistToken} setSection={setSection} />
+        <ProfileSection config={config} token={token} persistToken={persistToken} setSection={setSection} authVisualUrl={authVisualUrl} />
       ) : null}
 
       <FloatingCartDock
@@ -1904,7 +1906,13 @@ function CartSection({
   );
 }
 
-function AuthPanel({ persistToken }: { persistToken: (token: string | null) => void }) {
+function AuthPanel({
+  persistToken,
+  visualImageUrl
+}: {
+  persistToken: (token: string | null) => void;
+  visualImageUrl?: string | null;
+}) {
   const [mode, setMode] = useState<"password" | "register">("password");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -1939,40 +1947,62 @@ function AuthPanel({ persistToken }: { persistToken: (token: string | null) => v
 
   return (
     <section className="panel auth-panel">
-      <div className="auth-intro">
-        <p className="eyebrow">Customer access</p>
-        <h1>{mode === "register" ? "Create your account" : "Sign in to continue"}</h1>
-        <p className="muted">Login is required before checkout so addresses, order history, and payment status stay tied to the customer.</p>
-      </div>
-      <div className="segmented">
-        {(["password", "register"] as const).map((item) => (
-          <button className={mode === item ? "active" : ""} onClick={() => setMode(item)} type="button" key={item}>
-            {item === "password" ? "Login" : "Sign up"}
+      <div className="auth-form-side">
+        <div className="auth-intro">
+          <p className="eyebrow">Customer access</p>
+          <h1>{mode === "register" ? "Create your account" : "Welcome Back!"}</h1>
+          <p className="muted">{mode === "register" ? "Sign up with your customer details to continue checkout." : "Sign in with your email or phone and password."}</p>
+        </div>
+
+        <div className="segmented auth-tabs">
+          {(["password", "register"] as const).map((item) => (
+            <button className={mode === item ? "active" : ""} onClick={() => setMode(item)} type="button" key={item}>
+              {item === "password" ? "Login" : "Sign up"}
+            </button>
+          ))}
+        </div>
+
+        <form className="stack-form auth-form" onSubmit={submit}>
+          {mode === "password" ? (
+            <>
+              <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder="Email or phone" required />
+              <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" required />
+              <button className="forgot-password-link" type="button" disabled>
+                Forgot password?
+              </button>
+            </>
+          ) : null}
+
+          {mode === "register" ? (
+            <>
+              <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" required />
+              <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Phone" required />
+              <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" />
+            </>
+          ) : null}
+
+          {error ? <p className="form-error">{error}</p> : null}
+          <button className="auth-submit" disabled={busy} type="submit">
+            {busy ? "Working..." : mode === "register" ? "Create account" : "Login"}
           </button>
-        ))}
+        </form>
+
+        <p className="auth-switch-copy">
+          {mode === "register" ? "Already have an account?" : "Do not have an account?"}
+          <button onClick={() => setMode(mode === "register" ? "password" : "register")} type="button">
+            {mode === "register" ? "Login now" : "Register now"}
+          </button>
+        </p>
       </div>
-      <form className="stack-form" onSubmit={submit}>
-        {mode === "password" ? (
-          <>
-            <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder="Email or phone" required />
-            <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" required />
-          </>
-        ) : null}
 
-        {mode === "register" ? (
-          <>
-            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" required />
-            <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Phone" required />
-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Email" type="email" />
-          </>
-        ) : null}
-
-        {error ? <p className="form-error">{error}</p> : null}
-        <button className="primary-cta" disabled={busy} type="submit">
-          {busy ? "Working..." : mode === "register" ? "Create account" : "Login"}
-        </button>
-      </form>
-      <p className="muted auth-note">Phone OTP and Google/social login are hidden because they are not active for this customer app.</p>
+      <div className="auth-visual-side" aria-hidden="true">
+        {visualImageUrl ? <SafeImage src={visualImageUrl} alt="" fallbackText="Ismak Foods" /> : <span>Ismak Foods</span>}
+        <div className="auth-visual-dots">
+          <span />
+          <span />
+          <span />
+        </div>
+      </div>
     </section>
   );
 }
@@ -1986,6 +2016,7 @@ function CheckoutSection({
   branchId,
   choices,
   total,
+  authVisualUrl,
   setSection
 }: {
   config: AppConfig | null;
@@ -1996,6 +2027,7 @@ function CheckoutSection({
   branchId: number | null;
   choices: PaymentChoice[];
   total: number;
+  authVisualUrl?: string | null;
   setSection: (section: Section) => void;
 }) {
   const [addresses, setAddresses] = useState<{ id: number; label: string; address: string; contactName: string; contactPhone: string }[]>([]);
@@ -2069,15 +2101,8 @@ function CheckoutSection({
 
   if (!token) {
     return (
-      <section className="two-column">
-        <AuthPanel persistToken={persistToken} />
-        <aside className="panel checkout-summary">
-          <p className="eyebrow">Checkout guard</p>
-          <h2>Bearer token required</h2>
-          <p className="muted">
-            The cart is preserved while the customer signs in. Orders are never placed without Authorization.
-          </p>
-        </aside>
+      <section className="auth-page-shell">
+        <AuthPanel persistToken={persistToken} visualImageUrl={authVisualUrl} />
       </section>
     );
   }
@@ -2316,11 +2341,13 @@ function CheckoutSection({
 function OrdersSection({
   config,
   token,
-  persistToken
+  persistToken,
+  authVisualUrl
 }: {
   config: AppConfig | null;
   token: string | null;
   persistToken: (token: string | null) => void;
+  authVisualUrl?: string | null;
 }) {
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [details, setDetails] = useState<OrderDetails | null>(null);
@@ -2340,12 +2367,8 @@ function OrdersSection({
 
   if (!token) {
     return (
-      <section className="two-column">
-        <AuthPanel persistToken={persistToken} />
-        <aside className="panel">
-          <h2>Order history is private</h2>
-          <p className="muted">Sign in to list, track, and inspect customer orders.</p>
-        </aside>
+      <section className="auth-page-shell">
+        <AuthPanel persistToken={persistToken} visualImageUrl={authVisualUrl} />
       </section>
     );
   }
@@ -2456,12 +2479,14 @@ function ProfileSection({
   config,
   token,
   persistToken,
-  setSection
+  setSection,
+  authVisualUrl
 }: {
   config: AppConfig | null;
   token: string | null;
   persistToken: (token: string | null) => void;
   setSection: (section: Section) => void;
+  authVisualUrl?: string | null;
 }) {
   const [addresses, setAddresses] = useState<{ id: number; label: string; address: string; contactName: string; contactPhone: string }[]>([]);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
@@ -2478,13 +2503,8 @@ function ProfileSection({
 
   if (!token) {
     return (
-      <section className="two-column account-page">
-        <AuthPanel persistToken={persistToken} />
-        <aside className="panel account-side-card">
-          <p className="eyebrow">Why sign in?</p>
-          <h2>Checkout, addresses, and orders live behind customer auth.</h2>
-          <p className="muted">Guest browsing stays open, but placing orders requires the API bearer token.</p>
-        </aside>
+      <section className="auth-page-shell account-page">
+        <AuthPanel persistToken={persistToken} visualImageUrl={authVisualUrl} />
       </section>
     );
   }
