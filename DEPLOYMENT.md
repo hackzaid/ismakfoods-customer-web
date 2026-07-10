@@ -76,11 +76,12 @@ Every push to `main` runs:
 5. Syncs the standalone server files to the cPanel application root with `rsync` over SSH while preserving CloudLinux-managed paths.
 6. Mirrors `.next/static` to the domain document root so LiteSpeed/cPanel can serve `/_next/static/...` directly even when the Node app itself lives in the `standalone` subfolder.
 7. Normalizes read/execute permissions on `.next` and `public` so cPanel/LiteSpeed can stream static assets.
-8. Verifies that every generated file under `.next/static` exists in both the Node app root and the public document root after upload.
-9. Runs `npm install --omit=dev` remotely when CloudLinux's `node_modules` symlink already exists.
-10. If the symlink is missing, the workflow still deploys files and skips install so cPanel can create the symlink from the Node.js app screen.
-11. Touches `tmp/restart.txt` after a successful remote install so Passenger/cPanel restarts the Node.js app.
-12. Loads the public HTTPS URL and verifies the referenced `/_next/static` CSS, JS, and font assets return successful responses.
+8. Writes `/__deploy.json` with the GitHub SHA and verifies the public domain serves that marker.
+9. Verifies that every generated file under `.next/static` exists in both the Node app root and the public document root after upload.
+10. Runs `npm install --omit=dev` remotely when CloudLinux's `node_modules` symlink already exists.
+11. If the symlink is missing, the workflow still deploys files and skips install so cPanel can create the symlink from the Node.js app screen.
+12. Touches `tmp/restart.txt` after a successful remote install so Passenger/cPanel restarts the Node.js app.
+13. Loads the public HTTPS URL and verifies the referenced `/_next/static` CSS, JS, and font assets return successful responses.
 
 You can also run the workflow manually from GitHub Actions using `workflow_dispatch`.
 
@@ -94,6 +95,7 @@ You can also run the workflow manually from GitHub Actions using `workflow_dispa
 - GitHub Actions runs `npm install --omit=dev` on the server after upload so dependencies land in CloudLinux's managed dependency folder.
 - The cPanel server must allow SSH access and have `rsync` available. If `rsync` is unavailable, the deploy step can be changed to an `scp` upload.
 - If the public HTTPS smoke test reports `500` for `/_next/static/...`, the HTML is deployed but the static asset pair is not being served correctly from the cPanel origin. Check that `.next/static` exists both inside the Node app root and the domain document root, then restart the Node.js app and purge any Cloudflare cache if needed.
+- If `/__deploy.json` is missing or shows an old SHA, the public domain is not serving the files uploaded by the current workflow. In that case, update either the GitHub `CPANEL_DEPLOY_PATH` secret or the cPanel Node.js Application root so both point to the same directory.
 
 ## CloudLinux node_modules Recovery
 

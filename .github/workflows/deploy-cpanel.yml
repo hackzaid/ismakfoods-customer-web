@@ -45,7 +45,7 @@ jobs:
       - name: Prepare cPanel deploy artifact
         run: |
           rm -rf deploy
-          mkdir -p deploy/.next
+          mkdir -p deploy/.next deploy/public
           cp -R .next/standalone/. deploy/
           rm -rf deploy/node_modules
           cp -R .next/static deploy/.next/static
@@ -53,6 +53,9 @@ jobs:
           if [ -d public ]; then
             cp -R public deploy/public
           fi
+          cat > deploy/public/__deploy.json <<EOF
+          {"sha":"$GITHUB_SHA","run_id":"$GITHUB_RUN_ID","run_attempt":"$GITHUB_RUN_ATTEMPT","built_at":"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"}
+          EOF
           find deploy/.next/static -type f -printf '%P\n' | sort > deploy/.deploy-static-files
 
       - name: Configure SSH key
@@ -107,6 +110,11 @@ jobs:
             -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
             deploy/.next/static/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$public_root/.next/static/"
 
+          rsync -az \
+            --checksum \
+            -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
+            deploy/public/__deploy.json "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$public_root/__deploy.json"
+
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
             'bash -s' -- "$CPANEL_DEPLOY_PATH" "$public_root" <<'REMOTE'
@@ -119,6 +127,9 @@ jobs:
           chmod -R u+rwX,go+rX "$CPANEL_PUBLIC_ROOT/.next"
           if [ -d "$CPANEL_DEPLOY_PATH/public" ]; then
             chmod -R u+rwX,go+rX "$CPANEL_DEPLOY_PATH/public"
+          fi
+          if [ -f "$CPANEL_PUBLIC_ROOT/__deploy.json" ]; then
+            chmod u+rw,go+r "$CPANEL_PUBLIC_ROOT/__deploy.json"
           fi
           REMOTE
 
@@ -202,6 +213,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import os
+          import json
           import re
           import sys
           import time
@@ -210,6 +222,7 @@ jobs:
           import urllib.request
 
           base_url = os.environ["DEPLOY_VERIFY_URL"].rstrip("/")
+          expected_sha = os.environ["GITHUB_SHA"]
           static_manifest = {
               f"/_next/static/{line.strip()}"
               for line in Path("deploy/.deploy-static-files").read_text(encoding="utf-8").splitlines()
@@ -224,6 +237,22 @@ jobs:
           errors: list[str] = []
           for attempt in range(1, 5):
               errors = []
+              try:
+                  with urllib.request.urlopen(
+                      urllib.request.Request(f"{base_url}/__deploy.json", headers={"User-Agent": "github-actions-deploy-smoke"}),
+                      timeout=30,
+                  ) as response:
+                      deploy_marker = json.loads(response.read().decode("utf-8", errors="replace"))
+                  if deploy_marker.get("sha") != expected_sha:
+                      errors.append(
+                          f"Public deploy marker is stale or from another root. "
+                          f"expected sha {expected_sha}, got {deploy_marker.get('sha')!r}."
+                      )
+              except urllib.error.HTTPError as exc:
+                  errors.append(f"GET {base_url}/__deploy.json returned {exc.code}")
+              except Exception as exc:
+                  errors.append(f"GET {base_url}/__deploy.json failed: {exc}")
+
               try:
                   with urllib.request.urlopen(
                       urllib.request.Request(f"{base_url}/", headers={"User-Agent": "github-actions-deploy-smoke"}),
