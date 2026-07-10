@@ -19,6 +19,8 @@ jobs:
     env:
       NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL || 'https://api.ismakfoods.com/api/v1' }}
       NEXT_PUBLIC_API_ORIGIN: ${{ vars.NEXT_PUBLIC_API_ORIGIN || 'https://api.ismakfoods.com' }}
+      NEXT_PUBLIC_GOOGLE_CLIENT_ID: ${{ vars.NEXT_PUBLIC_GOOGLE_CLIENT_ID || secrets.NEXT_PUBLIC_GOOGLE_CLIENT_ID }}
+      NEXT_PUBLIC_FACEBOOK_APP_ID: ${{ vars.NEXT_PUBLIC_FACEBOOK_APP_ID || secrets.NEXT_PUBLIC_FACEBOOK_APP_ID }}
       CPANEL_SSH_HOST: ${{ secrets.CPANEL_SSH_HOST }}
       CPANEL_SSH_USER: ${{ secrets.CPANEL_SSH_USER }}
       CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
@@ -63,6 +65,8 @@ jobs:
           cat > deploy/standalone/.env.production <<EOF
           NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
           NEXT_PUBLIC_API_ORIGIN=${NEXT_PUBLIC_API_ORIGIN}
+          NEXT_PUBLIC_GOOGLE_CLIENT_ID=${NEXT_PUBLIC_GOOGLE_CLIENT_ID}
+          NEXT_PUBLIC_FACEBOOK_APP_ID=${NEXT_PUBLIC_FACEBOOK_APP_ID}
           EOF
 
           cat > deploy/standalone/public/__deploy.json <<EOF

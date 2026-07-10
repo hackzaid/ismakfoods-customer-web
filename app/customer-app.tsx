@@ -136,7 +136,7 @@ declare global {
 }
 
 const TOKEN_KEY = "ismakfoods.customer.token";
-const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "175077116216-ldqpou5goukij9f3m97b4prc984an6fa.apps.googleusercontent.com";
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
 const FACEBOOK_APP_ID = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID ?? "";
 const ALL_CATEGORY = "All";
 const CATEGORY_RULES = [
@@ -2215,7 +2215,7 @@ function AuthPanel({
             <div className="auth-divider"><span /> <strong>or continue with</strong> <span /></div>
             <button className="social-auth-button" disabled={socialBusy !== null || !GOOGLE_CLIENT_ID} onClick={() => continueWithSocial("google")} type="button">
               <span className="social-mark google-mark">G</span>
-              {socialBusy === "google" ? "Connecting Google..." : "Continue with Google"}
+              {socialBusy === "google" ? "Connecting Google..." : GOOGLE_CLIENT_ID ? "Continue with Google" : "Google client ID required"}
             </button>
             <button className="social-auth-button" disabled={socialBusy !== null || !FACEBOOK_APP_ID} onClick={() => continueWithSocial("facebook")} type="button">
               <span className="social-mark facebook-mark">f</span>
