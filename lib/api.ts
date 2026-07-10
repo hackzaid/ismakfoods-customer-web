@@ -103,6 +103,8 @@ export type ProductOption = {
   id: string;
   name: string;
   price: number;
+  source?: "variation" | "add_on";
+  addOnId?: number;
 };
 
 export type ProductVariation = {
@@ -214,7 +216,8 @@ function asArray(value: unknown): unknown[] {
 }
 
 function bool(value: unknown): boolean {
-  return value === true || value === 1 || value === "1" || value === "true";
+  const normalized = typeof value === "string" ? value.toLowerCase() : value;
+  return normalized === true || normalized === 1 || normalized === "1" || normalized === "true" || normalized === "on" || normalized === "yes";
 }
 
 function number(value: unknown, fallback = 0): number {
@@ -471,13 +474,39 @@ function optionPrice(option: Record<string, unknown>): number {
   return number(option.price ?? option.option_price ?? option.optionPrice);
 }
 
+function hasOptionValues(entry: unknown): entry is Record<string, unknown> {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+    return false;
+  }
+  const record = entry as Record<string, unknown>;
+  return asArray(record.values ?? record.options).length > 0;
+}
+
+function uniqueVariationGroups(groups: ProductVariation[]): ProductVariation[] {
+  const seen = new Set<string>();
+  return groups.filter((group) => {
+    const key = `${group.name.toLowerCase()}:${group.values.map((value) => value.name.toLowerCase()).join("|")}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 function normalizeProductVariations(record: Record<string, unknown>): ProductVariation[] {
+  const branchProduct = getPayload(record.branch_product);
+  const rawVariationSources = [
+    ...asArray(branchProduct.variations),
+    ...asArray(record.variations ?? record.variation)
+  ];
   const groupedSource = [
+    ...rawVariationSources.filter(hasOptionValues),
     ...asArray(record.variations_json),
     ...asArray(record.choice_options ?? record.choiceOptions),
     ...asArray(record.option_groups)
   ];
-  const flatSource = asArray(record.variations ?? record.variation);
+  const flatSource = rawVariationSources.filter((entry) => !hasOptionValues(entry));
 
   const flatByName = new Map<string, number>();
   flatSource.forEach((entry) => {
@@ -491,13 +520,14 @@ function normalizeProductVariations(record: Record<string, unknown>): ProductVar
   });
 
   if (groupedSource.length) {
-    return groupedSource
+    const variationGroups = groupedSource
       .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
       .map((group, groupIndex) => {
         const sourceValues = asArray(group.values ?? group.options);
+        const required = bool(group.required);
         const type: ProductVariation["type"] =
-          text(group.type ?? group.selection_type, "single").toLowerCase() === "multi" ? "multi" : "single";
-        const min = Math.max(0, number(group.min ?? group.min_select ?? group.minimum, bool(group.required) ? 1 : 0));
+          ["multi", "multiple"].includes(text(group.type ?? group.selection_type, "single").toLowerCase()) ? "multi" : "single";
+        const min = Math.max(required ? 1 : 0, number(group.min ?? group.min_select ?? group.minimum, required ? 1 : 0));
         const max = Math.max(type === "single" ? 1 : min, number(group.max ?? group.max_select ?? group.maximum, type === "single" ? 1 : 99));
         const values = sourceValues
           .map((option, optionIndex): ProductOption | null => {
@@ -510,7 +540,8 @@ function normalizeProductVariations(record: Record<string, unknown>): ProductVar
             return {
               id: text(optionRecord.id ?? optionRecord.value ?? optionRecord.name ?? `${groupIndex}-${optionIndex}`),
               name,
-              price: optionPrice(optionRecord) || fallbackPrice
+              price: optionPrice(optionRecord) || fallbackPrice,
+              source: "variation"
             };
           })
           .filter((value): value is ProductOption => Boolean(value));
@@ -519,25 +550,28 @@ function normalizeProductVariations(record: Record<string, unknown>): ProductVar
           id: text(group.id ?? group.name ?? group.title ?? groupIndex),
           name: text(group.name ?? group.title, `Option group ${groupIndex + 1}`),
           type,
-          required: bool(group.required) || min > 0,
+          required: required || min > 0,
           min,
           max,
           values
         };
       })
       .filter((group) => group.values.length);
+
+    return uniqueVariationGroups(variationGroups).concat(normalizeProductAddOns(record));
   }
 
   const values = flatSource
     .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
     .map((entry, index) => ({
       id: text(entry.id ?? entry.type ?? entry.name ?? index),
-      name: text(entry.type ?? entry.name ?? entry.label, `Variation ${index + 1}`),
-      price: optionPrice(entry)
+      name: text(entry.name ?? entry.label ?? entry.type, `Variation ${index + 1}`),
+      price: optionPrice(entry),
+      source: "variation" as const
     }))
     .filter((entry) => entry.name);
 
-  return values.length
+  const flatGroups: ProductVariation[] = values.length
     ? [
         {
           id: "variation",
@@ -547,6 +581,41 @@ function normalizeProductVariations(record: Record<string, unknown>): ProductVar
           min: 1,
           max: 1,
           values
+        }
+      ]
+    : [];
+  return flatGroups.concat(normalizeProductAddOns(record));
+}
+
+function normalizeProductAddOns(record: Record<string, unknown>): ProductVariation[] {
+  const addOns = asArray(record.add_ons ?? record.addOns)
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry): ProductOption | null => {
+      const id = number(entry.id);
+      const name = text(entry.name ?? entry.label);
+      if (!id || !name) {
+        return null;
+      }
+      return {
+        id: `add-on-${id}`,
+        name,
+        price: optionPrice(entry),
+        source: "add_on",
+        addOnId: id
+      };
+    })
+    .filter((entry): entry is ProductOption => Boolean(entry));
+
+  return addOns.length
+    ? [
+        {
+          id: "add_ons",
+          name: "Extras",
+          type: "multi",
+          required: false,
+          min: 0,
+          max: addOns.length,
+          values: addOns
         }
       ]
     : [];

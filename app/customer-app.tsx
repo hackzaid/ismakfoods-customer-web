@@ -120,8 +120,9 @@ function cartTotal(lines: CartLine[]) {
 
 function selectedVariationPayload(product: Product, selections: SelectionMap) {
   return product.variations
+    .filter((group) => group.values.some((option) => option.source !== "add_on"))
     .map((group) => {
-      const selected = selections[group.id] ?? [];
+      const selected = (selections[group.id] ?? []).filter((option) => option.source !== "add_on");
       return {
         id: group.id,
         name: group.name,
@@ -142,6 +143,14 @@ function selectedVariationPayload(product: Product, selections: SelectionMap) {
     .filter((group) => group.values.length);
 }
 
+function selectedAddOns(product: Product, selections: SelectionMap) {
+  return product.variations.flatMap((group) =>
+    (selections[group.id] ?? [])
+      .filter((option) => option.source === "add_on" && option.addOnId)
+      .map((option) => option.addOnId as number)
+  );
+}
+
 function validateSelections(product: Product, selections: SelectionMap): string | null {
   for (const group of product.variations) {
     const count = selections[group.id]?.length ?? 0;
@@ -160,18 +169,24 @@ function validateSelections(product: Product, selections: SelectionMap): string 
 }
 
 function cartPayload(lines: CartLine[]): CartLinePayload[] {
-  return lines.map((line) => ({
-    product_id: line.product.id,
-    quantity: line.quantity,
-    variant: [],
-    variations: selectedVariationPayload(line.product, line.selections),
-    add_on_ids: [],
-    add_on_qtys: []
-  }));
+  return lines.map((line) => {
+    const addOnIds = selectedAddOns(line.product, line.selections);
+    return {
+      product_id: line.product.id,
+      quantity: line.quantity,
+      variant: [],
+      variations: selectedVariationPayload(line.product, line.selections),
+      add_on_ids: addOnIds,
+      add_on_qtys: addOnIds.map(() => 1)
+    };
+  });
 }
 
 function selectionKey(product: Product, selections: SelectionMap) {
-  return `${product.id}:${JSON.stringify(selectedVariationPayload(product, selections))}`;
+  return `${product.id}:${JSON.stringify({
+    variations: selectedVariationPayload(product, selections),
+    addOns: selectedAddOns(product, selections)
+  })}`;
 }
 
 function activeGateway(config: AppConfig | null): PaymentGateway | null {
@@ -1451,6 +1466,8 @@ function VariationModal({
             const selectedCount = selections[group.id]?.length ?? 0;
             const rule = group.type === "single"
               ? "Choose one"
+              : group.min === 0
+                ? `Choose up to ${group.max}`
               : group.min === group.max
                 ? `Choose ${group.max}`
                 : `Choose ${group.min}-${group.max}`;
