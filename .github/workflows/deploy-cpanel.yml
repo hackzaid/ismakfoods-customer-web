@@ -89,8 +89,12 @@ jobs:
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
             "cd '$CPANEL_DEPLOY_PATH' && \
-             if [ -e node_modules ] && [ ! -L node_modules ]; then \
-               echo 'CloudLinux requires node_modules to be its managed symlink, but a real node_modules path exists.' >&2; \
+             if [ -d node_modules ] && [ ! -L node_modules ]; then \
+               echo 'Removing real node_modules directory left by a previous deploy.'; \
+               rm -rf node_modules; \
+             fi && \
+             if [ ! -L node_modules ]; then \
+               echo 'CloudLinux node_modules symlink is missing. Save the Node.js app in cPanel, then use Run NPM Install once so CloudLinux creates the symlink.' >&2; \
                exit 1; \
              fi && \
              npm install --omit=dev --no-audit --no-fund && \

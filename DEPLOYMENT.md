@@ -87,3 +87,15 @@ You can also run the workflow manually from GitHub Actions using `workflow_dispa
 - Do not manually upload a real `node_modules` directory into the application root.
 - GitHub Actions runs `npm install --omit=dev` on the server after upload so dependencies land in CloudLinux's managed dependency folder.
 - The cPanel server must allow SSH access and have `rsync` available. If `rsync` is unavailable, the deploy step can be changed to an `scp` upload.
+
+## CloudLinux node_modules Recovery
+
+If a previous deploy created a real `node_modules` directory in the application root, the workflow removes it automatically. After that, CloudLinux still needs its managed `node_modules` symlink before `npm install` can run safely.
+
+If the workflow reports that the symlink is missing:
+
+1. Open the cPanel Node.js app screen.
+2. Confirm the application root is correct.
+3. Save the app.
+4. Click `Run NPM Install` once from cPanel so CloudLinux creates its managed dependency symlink.
+5. Rerun the GitHub Action.
