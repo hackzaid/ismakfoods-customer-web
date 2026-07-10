@@ -23,6 +23,7 @@ jobs:
       CPANEL_SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_PRIVATE_KEY }}
       CPANEL_SSH_PRIVATE_KEY_B64: ${{ secrets.CPANEL_SSH_PRIVATE_KEY_B64 }}
       CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH || '/home/afripnxq/demo.ismakfoods.com/standalone' }}
+      CPANEL_PUBLIC_ROOT: ${{ secrets.CPANEL_PUBLIC_ROOT }}
       DEPLOY_VERIFY_URL: ${{ vars.DEPLOY_VERIFY_URL || 'https://demo.ismakfoods.com' }}
 
     steps:
@@ -93,14 +94,28 @@ jobs:
             -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
             deploy/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
 
+      - name: Mirror Next static assets to public root
+        run: |
+          public_root="${CPANEL_PUBLIC_ROOT:-$(dirname "$CPANEL_DEPLOY_PATH")}"
+
+          ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
+            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
+            "mkdir -p '$public_root/.next/static'"
+
+          rsync -az --delete \
+            --checksum \
+            -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
+            deploy/.next/static/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$public_root/.next/static/"
+
       - name: Verify uploaded static files on cPanel
         run: |
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
-            'bash -s' -- "$CPANEL_DEPLOY_PATH" <<'REMOTE'
+            'bash -s' -- "$CPANEL_DEPLOY_PATH" "${CPANEL_PUBLIC_ROOT:-}" <<'REMOTE'
           set -e
 
           CPANEL_DEPLOY_PATH="$1"
+          CPANEL_PUBLIC_ROOT="${2:-$(dirname "$CPANEL_DEPLOY_PATH")}"
           cd "$CPANEL_DEPLOY_PATH"
 
           if [ ! -s .deploy-static-files ]; then
@@ -112,6 +127,10 @@ jobs:
           while IFS= read -r file; do
             if [ ! -s ".next/static/$file" ]; then
               echo "Missing or empty static file: .next/static/$file" >&2
+              missing=1
+            fi
+            if [ ! -s "$CPANEL_PUBLIC_ROOT/.next/static/$file" ]; then
+              echo "Missing or empty public static file: $CPANEL_PUBLIC_ROOT/.next/static/$file" >&2
               missing=1
             fi
           done < .deploy-static-files
