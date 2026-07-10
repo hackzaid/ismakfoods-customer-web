@@ -94,14 +94,43 @@ jobs:
         run: |
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
-            "cd '$CPANEL_DEPLOY_PATH' && \
-             if [ -d node_modules ] && [ ! -L node_modules ]; then \
-               echo 'Removing real node_modules directory left by a previous deploy.'; \
-               rm -rf node_modules; \
-             fi && \
-             if [ ! -L node_modules ]; then \
-               echo 'CloudLinux node_modules symlink is missing. Files were deployed, but dependencies were not installed. Save the Node.js app in cPanel and click Run NPM Install once.'; \
-               exit 0; \
-             fi && \
-             npm install --omit=dev --no-audit --no-fund && \
-             mkdir -p tmp && touch tmp/restart.txt"
+            'bash -s' -- "$CPANEL_DEPLOY_PATH" <<'REMOTE'
+          set -e
+
+          CPANEL_DEPLOY_PATH="$1"
+          cd "$CPANEL_DEPLOY_PATH"
+
+          if [ -d node_modules ] && [ ! -L node_modules ]; then
+            echo 'Removing real node_modules directory left by a previous deploy.'
+            rm -rf node_modules
+          fi
+
+          if [ ! -L node_modules ]; then
+            echo 'CloudLinux node_modules symlink is missing. Files were deployed, but dependencies were not installed. Save the Node.js app in cPanel and click Run NPM Install once.'
+            mkdir -p tmp
+            touch tmp/restart.txt
+            exit 0
+          fi
+
+          if ! command -v npm >/dev/null 2>&1; then
+            app_relative="${CPANEL_DEPLOY_PATH#$HOME/}"
+            for activate in "$HOME/nodevenv/$app_relative/"*/bin/activate "$HOME/nodevenv/$app_relative/bin/activate"; do
+              if [ -f "$activate" ]; then
+                # CloudLinux exposes npm through the Node.js Selector virtualenv.
+                . "$activate"
+                break
+              fi
+            done
+          fi
+
+          if ! command -v npm >/dev/null 2>&1; then
+            echo 'npm is not available in this SSH shell. Files were deployed; use cPanel Run NPM Install for dependency changes.'
+            mkdir -p tmp
+            touch tmp/restart.txt
+            exit 0
+          fi
+
+          npm install --omit=dev --no-audit --no-fund
+          mkdir -p tmp
+          touch tmp/restart.txt
+          REMOTE
