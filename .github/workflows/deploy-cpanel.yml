@@ -1,0 +1,57 @@
+name: Deploy customer web to cPanel
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: cpanel-deploy
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    name: Build static app and deploy over SSH
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL || 'https://api.ismakfoods.com/api/v1' }}
+      NEXT_PUBLIC_API_ORIGIN: ${{ vars.NEXT_PUBLIC_API_ORIGIN || 'https://api.ismakfoods.com' }}
+      CPANEL_SSH_HOST: ${{ secrets.CPANEL_SSH_HOST }}
+      CPANEL_SSH_USER: ${{ secrets.CPANEL_SSH_USER }}
+      CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
+      CPANEL_SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_PRIVATE_KEY }}
+      CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build static export
+        run: npm run build
+
+      - name: Configure SSH key
+        run: |
+          : "${CPANEL_SSH_HOST:?Missing CPANEL_SSH_HOST secret}"
+          : "${CPANEL_SSH_USER:?Missing CPANEL_SSH_USER secret}"
+          : "${CPANEL_SSH_PRIVATE_KEY:?Missing CPANEL_SSH_PRIVATE_KEY secret}"
+          : "${CPANEL_DEPLOY_PATH:?Missing CPANEL_DEPLOY_PATH secret}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$CPANEL_SSH_PRIVATE_KEY" > ~/.ssh/cpanel_key
+          chmod 600 ~/.ssh/cpanel_key
+          ssh-keyscan -p "${CPANEL_SSH_PORT:-22}" "$CPANEL_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy out folder to cPanel
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
+            out/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
