@@ -27,10 +27,7 @@ import {
   ProductOption,
   ProductVariation,
   registerWithOtp,
-  requestPhoneOtp,
-  searchProducts,
-  socialLogin,
-  verifyPhoneOtp
+  searchProducts
 } from "@/lib/api";
 
 type Section = "menu" | "live-menu" | "cart" | "checkout" | "orders" | "profile";
@@ -1907,22 +1904,13 @@ function CartSection({
   );
 }
 
-function AuthPanel({
-  config,
-  persistToken
-}: {
-  config: AppConfig | null;
-  persistToken: (token: string | null) => void;
-}) {
-  const [mode, setMode] = useState<"password" | "otp" | "register" | "social">("password");
+function AuthPanel({ persistToken }: { persistToken: (token: string | null) => void }) {
+  const [mode, setMode] = useState<"password" | "register">("password");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState("");
-  const [googleToken, setGoogleToken] = useState("");
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1930,21 +1918,12 @@ function AuthPanel({
     event.preventDefault();
     setBusy(true);
     setError(null);
-    setMessage(null);
     try {
       let nextToken = "";
       if (mode === "password") {
         nextToken = await loginWithPassword(identifier, password);
-      } else if (mode === "register") {
-        nextToken = await registerWithOtp(name, phone, email);
-      } else if (mode === "otp") {
-        if (!otp) {
-          setMessage(await requestPhoneOtp(phone));
-          return;
-        }
-        nextToken = await verifyPhoneOtp(phone, otp);
       } else {
-        nextToken = await socialLogin(googleToken, email || undefined, "google");
+        nextToken = await registerWithOtp(name, phone, email);
       }
 
       if (!nextToken) {
@@ -1966,9 +1945,9 @@ function AuthPanel({
         <p className="muted">Login is required before checkout so addresses, order history, and payment status stay tied to the customer.</p>
       </div>
       <div className="segmented">
-        {(["password", "otp", "register", "social"] as const).map((item) => (
+        {(["password", "register"] as const).map((item) => (
           <button className={mode === item ? "active" : ""} onClick={() => setMode(item)} type="button" key={item}>
-            {item === "password" ? "Password" : item === "otp" ? "Phone OTP" : item === "register" ? "Register" : "Google"}
+            {item === "password" ? "Login" : "Sign up"}
           </button>
         ))}
       </div>
@@ -1980,13 +1959,6 @@ function AuthPanel({
           </>
         ) : null}
 
-        {mode === "otp" ? (
-          <>
-            <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Phone number" required />
-            <input value={otp} onChange={(event) => setOtp(event.target.value)} placeholder="OTP token after request" />
-          </>
-        ) : null}
-
         {mode === "register" ? (
           <>
             <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" required />
@@ -1995,26 +1967,12 @@ function AuthPanel({
           </>
         ) : null}
 
-        {mode === "social" ? (
-          <>
-            {!config?.socialLogin.google ? <p className="form-error">Google login is not enabled by config.</p> : null}
-            <input value={email} onChange={(event) => setEmail(event.target.value)} placeholder="Google account email" type="email" />
-            <textarea
-              value={googleToken}
-              onChange={(event) => setGoogleToken(event.target.value)}
-              placeholder="Paste Google ID token from the web Google sign-in flow"
-              required
-            />
-          </>
-        ) : null}
-
-        {message ? <p className="form-message">{message}</p> : null}
         {error ? <p className="form-error">{error}</p> : null}
-        <button className="primary-cta" disabled={busy || (mode === "social" && !config?.socialLogin.google)} type="submit">
-          {busy ? "Working..." : mode === "otp" && !otp ? "Request OTP" : "Continue"}
+        <button className="primary-cta" disabled={busy} type="submit">
+          {busy ? "Working..." : mode === "register" ? "Create account" : "Login"}
         </button>
       </form>
-      <p className="muted auth-note">Registration currently follows the API OTP flow. Password setup and social login depend on backend configuration.</p>
+      <p className="muted auth-note">Phone OTP and Google/social login are hidden because they are not active for this customer app.</p>
     </section>
   );
 }
@@ -2112,7 +2070,7 @@ function CheckoutSection({
   if (!token) {
     return (
       <section className="two-column">
-        <AuthPanel config={config} persistToken={persistToken} />
+        <AuthPanel persistToken={persistToken} />
         <aside className="panel checkout-summary">
           <p className="eyebrow">Checkout guard</p>
           <h2>Bearer token required</h2>
@@ -2383,7 +2341,7 @@ function OrdersSection({
   if (!token) {
     return (
       <section className="two-column">
-        <AuthPanel config={config} persistToken={persistToken} />
+        <AuthPanel persistToken={persistToken} />
         <aside className="panel">
           <h2>Order history is private</h2>
           <p className="muted">Sign in to list, track, and inspect customer orders.</p>
@@ -2521,7 +2479,7 @@ function ProfileSection({
   if (!token) {
     return (
       <section className="two-column account-page">
-        <AuthPanel config={config} persistToken={persistToken} />
+        <AuthPanel persistToken={persistToken} />
         <aside className="panel account-side-card">
           <p className="eyebrow">Why sign in?</p>
           <h2>Checkout, addresses, and orders live behind customer auth.</h2>
