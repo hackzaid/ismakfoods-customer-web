@@ -923,7 +923,7 @@ function MenuSection({
         </div>
       </section>
 
-      <section className="home-section" id="popular-restaurants">
+      <section className="home-section popular-focus-section" id="popular-restaurants">
         <SectionHeader
           title={activeCategory === ALL_CATEGORY ? "Popular Foods" : activeCategory === "Chef Picks" ? activeCategory : `${activeCategory} Picks`}
           subtitle={`${popular.length} favourites from this selection / tap + to add`}
@@ -943,6 +943,7 @@ function MenuSection({
                   <span>{product.deliveryEta}</span>
                   <strong>{product.rating.toFixed(1)} rated</strong>
                 </span>
+                <strong className="product-price-line">{formatPrice(config, product.discountPrice ?? product.price)}</strong>
                 <button className="quick-add-btn" onClick={(event) => addProduct(product, event.currentTarget)} type="button" aria-label={product.variations.length ? `Customize ${product.name}` : `Add ${product.name}`}>
                   {product.variations.length ? "Options" : "+"}
                 </button>
@@ -952,7 +953,7 @@ function MenuSection({
         </div> : null}
       </section>
 
-      <section className="home-section deals-section">
+      <section className="home-section deals-section revenue-section">
         <SectionHeader title="Super Delicious Deals Just for You!" actions={["All deals"]} />
         <div className="deal-grid">
           {deals.map((product, index) => (
