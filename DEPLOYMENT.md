@@ -73,9 +73,11 @@ Every push to `main` runs:
 3. Packages `.next/standalone`, `.next/static`, and `public` into `deploy/`.
 4. Removes the generated standalone `node_modules` folder from the upload package because CloudLinux requires `node_modules` in the application root to be its own symlink.
 5. Syncs the standalone server files to the cPanel application root with `rsync` over SSH while preserving CloudLinux-managed paths.
-6. Runs `npm install --omit=dev` remotely when CloudLinux's `node_modules` symlink already exists.
-7. If the symlink is missing, the workflow still deploys files and skips install so cPanel can create the symlink from the Node.js app screen.
-8. Touches `tmp/restart.txt` after a successful remote install so Passenger/cPanel restarts the Node.js app.
+6. Verifies that every generated file under `.next/static` exists on cPanel after upload.
+7. Runs `npm install --omit=dev` remotely when CloudLinux's `node_modules` symlink already exists.
+8. If the symlink is missing, the workflow still deploys files and skips install so cPanel can create the symlink from the Node.js app screen.
+9. Touches `tmp/restart.txt` after a successful remote install so Passenger/cPanel restarts the Node.js app.
+10. Loads the public HTTPS URL and verifies the referenced `/_next/static` CSS, JS, and font assets return successful responses.
 
 You can also run the workflow manually from GitHub Actions using `workflow_dispatch`.
 
@@ -88,6 +90,7 @@ You can also run the workflow manually from GitHub Actions using `workflow_dispa
 - Do not manually upload a real `node_modules` directory into the application root.
 - GitHub Actions runs `npm install --omit=dev` on the server after upload so dependencies land in CloudLinux's managed dependency folder.
 - The cPanel server must allow SSH access and have `rsync` available. If `rsync` is unavailable, the deploy step can be changed to an `scp` upload.
+- If the public HTTPS smoke test reports `500` for `/_next/static/...`, the HTML is deployed but the static asset pair is not being served correctly from the cPanel origin. Check that `.next/static` was uploaded into the same application root as `server.js`, then restart the Node.js app and purge any Cloudflare cache if needed.
 
 ## CloudLinux node_modules Recovery
 

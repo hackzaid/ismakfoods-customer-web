@@ -23,6 +23,7 @@ jobs:
       CPANEL_SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_PRIVATE_KEY }}
       CPANEL_SSH_PRIVATE_KEY_B64: ${{ secrets.CPANEL_SSH_PRIVATE_KEY_B64 }}
       CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH || '/home/afripnxq/demo.ismakfoods.com/standalone' }}
+      DEPLOY_VERIFY_URL: ${{ vars.DEPLOY_VERIFY_URL || 'https://demo.ismakfoods.com' }}
 
     steps:
       - name: Check out repository
@@ -51,6 +52,7 @@ jobs:
           if [ -d public ]; then
             cp -R public deploy/public
           fi
+          find deploy/.next/static -type f -printf '%P\n' | sort > deploy/.deploy-static-files
 
       - name: Configure SSH key
         run: |
@@ -81,6 +83,7 @@ jobs:
       - name: Deploy standalone app to cPanel
         run: |
           rsync -az --delete \
+            --checksum \
             --exclude='.htaccess' \
             --exclude='tmp/' \
             --exclude='logs/' \
@@ -89,6 +92,32 @@ jobs:
             --exclude='.well-known/' \
             -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
             deploy/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
+
+      - name: Verify uploaded static files on cPanel
+        run: |
+          ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
+            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
+            'bash -s' -- "$CPANEL_DEPLOY_PATH" <<'REMOTE'
+          set -e
+
+          CPANEL_DEPLOY_PATH="$1"
+          cd "$CPANEL_DEPLOY_PATH"
+
+          if [ ! -s .deploy-static-files ]; then
+            echo 'Missing deployed static manifest .deploy-static-files.' >&2
+            exit 1
+          fi
+
+          missing=0
+          while IFS= read -r file; do
+            if [ ! -s ".next/static/$file" ]; then
+              echo "Missing or empty static file: .next/static/$file" >&2
+              missing=1
+            fi
+          done < .deploy-static-files
+
+          exit "$missing"
+          REMOTE
 
       - name: Install dependencies when CloudLinux symlink exists
         run: |
@@ -134,3 +163,74 @@ jobs:
           mkdir -p tmp
           touch tmp/restart.txt
           REMOTE
+
+      - name: Verify public HTTPS assets
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+          import time
+          import urllib.error
+          import urllib.request
+
+          base_url = os.environ["DEPLOY_VERIFY_URL"].rstrip("/")
+
+          def request(url: str, method: str = "GET") -> tuple[int, str]:
+              request = urllib.request.Request(url, method=method, headers={"User-Agent": "github-actions-deploy-smoke"})
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return response.status, response.headers.get("content-type", "")
+
+          errors: list[str] = []
+          for attempt in range(1, 5):
+              errors = []
+              try:
+                  with urllib.request.urlopen(
+                      urllib.request.Request(f"{base_url}/", headers={"User-Agent": "github-actions-deploy-smoke"}),
+                      timeout=30,
+                  ) as response:
+                      html = response.read().decode("utf-8", errors="replace")
+              except Exception as exc:
+                  errors.append(f"GET {base_url}/ failed: {exc}")
+                  html = ""
+
+              asset_paths = sorted(
+                  {
+                      match.rstrip("\\")
+                      for match in re.findall(r"/_next/static/[^\"'<>\s\\]+", html)
+                  }
+              )
+
+              if not asset_paths and not errors:
+                  errors.append("No /_next/static assets found in deployed HTML.")
+
+              for path in asset_paths:
+                  url = f"{base_url}{path}"
+                  try:
+                      status, content_type = request(url, "HEAD")
+                  except urllib.error.HTTPError as exc:
+                      errors.append(f"HEAD {url} returned {exc.code}")
+                      continue
+                  except Exception as exc:
+                      errors.append(f"HEAD {url} failed: {exc}")
+                      continue
+
+                  if status >= 400:
+                      errors.append(f"HEAD {url} returned {status}")
+                  if path.endswith(".css") and "text/css" not in content_type:
+                      errors.append(f"HEAD {url} returned unexpected content-type {content_type!r}")
+                  if path.endswith(".js") and "javascript" not in content_type:
+                      errors.append(f"HEAD {url} returned unexpected content-type {content_type!r}")
+
+              if not errors:
+                  print(f"Verified {len(asset_paths)} public Next.js static assets from {base_url}.")
+                  sys.exit(0)
+
+              print(f"Deploy smoke attempt {attempt} failed:")
+              for error in errors[:20]:
+                  print(f"- {error}")
+              if attempt < 4:
+                  time.sleep(10)
+
+          sys.exit(1)
+          PY
