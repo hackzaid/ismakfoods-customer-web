@@ -493,7 +493,7 @@ export default function CustomerApp() {
             <CartIcon />
             {cart.length ? <span className="cart-count">{cart.length}</span> : null}
           </button>
-          <button className="account-btn" onClick={() => setSection(token ? "profile" : "checkout")} type="button" aria-label={token ? "Open profile" : "Open account access"}>
+          <button className="account-btn" onClick={() => setSection("profile")} type="button" aria-label={token ? "Open profile" : "Open account access"}>
             <ProfileIcon />
           </button>
         </div>
@@ -2051,10 +2051,14 @@ function CheckoutSection({
   const [order, setOrder] = useState<OrderPlacementResult | null>(null);
   const [paymentSession, setPaymentSession] = useState<PaymentSession | null>(null);
   const [paymentStatus, setPaymentStatus] = useState<PaymentStatus | null>(null);
+  const [submittedCart, setSubmittedCart] = useState<CartLine[]>([]);
+  const [submittedTotal, setSubmittedTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   const selectedChoice = choices.find((choice) => choice.key === paymentKey) ?? choices[0];
   const gateway = activeGateway(config);
+  const summaryCart = order ? submittedCart : cart;
+  const summaryTotal = order ? submittedTotal : total;
 
   useEffect(() => {
     if (!choices.length) {
@@ -2157,6 +2161,8 @@ function CheckoutSection({
     setError(null);
     setPaymentStatus(null);
     setPaymentSession(null);
+    setSubmittedCart(cart);
+    setSubmittedTotal(total);
 
     try {
       setPaymentState("placing_order");
@@ -2307,21 +2313,21 @@ function CheckoutSection({
             <p>{paymentState === "paid" ? "Payment confirmed." : paymentState === "manual_review_if_offline" ? "Order placed for offline settlement." : "Order placed. Payment/status updates continue below."}</p>
           </div>
         ) : (
-          <h2>{formatPrice(config, total)}</h2>
+          <h2>{formatPrice(config, summaryTotal)}</h2>
         )}
         <div className="summary-lines">
-          {cart.map((line) => (
+          {summaryCart.map((line) => (
             <div key={line.key}>
               <span>{line.quantity} x {line.product.name}</span>
               <strong>{formatPrice(config, lineUnitPrice(line) * line.quantity)}</strong>
             </div>
           ))}
-          {!cart.length ? <p className="muted">Cart is empty. Add items before checkout.</p> : null}
+          {!summaryCart.length ? <p className="muted">Cart is empty. Add items before checkout.</p> : null}
         </div>
         <dl>
           <div>
             <dt>Total</dt>
-            <dd>{formatPrice(config, total)}</dd>
+            <dd>{formatPrice(config, summaryTotal)}</dd>
           </div>
           <div>
             <dt>Order</dt>
@@ -2400,33 +2406,59 @@ function OrdersSection({
   }
 
   return (
-    <section className="two-column">
+    <section className="two-column orders-page">
       <div className="panel wide">
-        <h1>Orders</h1>
+        <div className="section-heading">
+          <p className="eyebrow">Order history</p>
+          <h1>Your orders</h1>
+          <p className="muted">Track payment state, kitchen progress, and receipt details from the customer API.</p>
+        </div>
         {loading ? <div className="empty">Loading orders...</div> : null}
         {error ? <p className="form-error">{error}</p> : null}
-        {!loading && !orders.length ? <div className="empty">No orders returned.</div> : null}
-        {orders.map((order) => (
-          <article className="order-row" key={order.id}>
-            <div>
-              <h2>Order #{order.id}</h2>
-              <p className="muted">
-                {order.status} / {order.paymentStatus}
-              </p>
-            </div>
-            <strong>{formatPrice(config, order.amount)}</strong>
-            <button onClick={() => openDetails(order.id)} type="button">
-              Details
-            </button>
-          </article>
-        ))}
+        {!loading && !orders.length ? (
+          <div className="empty order-empty">
+            <span>No orders yet</span>
+            <strong>Your first receipt will appear here after checkout.</strong>
+          </div>
+        ) : null}
+        {orders.length ? (
+          <div className="order-list">
+            {orders.map((order) => (
+              <article className="order-row" key={order.id}>
+                <div className="order-row-main">
+                  <span className={`status-dot ${statusTone(order.paymentStatus) === "success" ? "positive" : ""}`} />
+                  <div>
+                    <h2>Order #{order.id}</h2>
+                    <p className="muted">
+                      {order.status} / {order.paymentStatus}
+                    </p>
+                  </div>
+                </div>
+                <strong>{formatPrice(config, order.amount)}</strong>
+                <button onClick={() => openDetails(order.id)} type="button">
+                  View receipt
+                </button>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </div>
-      <aside className="panel status-panel">
+      <aside className="panel status-panel order-receipt-panel">
         <p className="eyebrow">Details and tracking</p>
         {details ? (
           <>
-            <h2>Order #{details.id}</h2>
-            <p className={`state-pill ${statusTone(details.paymentStatus)}`}>{details.paymentStatus}</p>
+            <div className="receipt-heading">
+              <div>
+                <h2>Order #{details.id}</h2>
+                <p className="muted">Receipt summary</p>
+              </div>
+              <p className={`state-pill ${statusTone(details.paymentStatus)}`}>{details.paymentStatus}</p>
+            </div>
+            <div className="order-timeline">
+              {["pending", "paid", "preparing"].map((step) => (
+                <span className={details.paymentStatus === step || details.status === step ? "active" : ""} key={step}>{step}</span>
+              ))}
+            </div>
             <dl>
               <div>
                 <dt>Status</dt>
@@ -2441,14 +2473,21 @@ function OrdersSection({
                 <dd>{details.transactionReference ?? "Pending"}</dd>
               </div>
             </dl>
-            {details.items.map((item, index) => (
-              <p className="muted" key={`${item.name}-${index}`}>
-                {item.quantity} x {item.name}
-              </p>
-            ))}
+            <div className="receipt-items">
+              {details.items.map((item, index) => (
+                <div key={`${item.name}-${index}`}>
+                  <span>{item.quantity} x {item.name}</span>
+                  <strong>{formatPrice(config, item.totalPrice)}</strong>
+                </div>
+              ))}
+            </div>
+            <p className="muted">Estimated delivery time should come from the order details API when backend exposes rider/kitchen timing.</p>
           </>
         ) : (
-          <p className="muted">Choose an order to inspect its current state.</p>
+          <div className="empty receipt-placeholder">
+            <span>Receipt</span>
+            <strong>Choose an order to inspect its current state.</strong>
+          </div>
         )}
       </aside>
     </section>
@@ -2467,13 +2506,16 @@ function ProfileSection({
   setSection: (section: Section) => void;
 }) {
   const [addresses, setAddresses] = useState<{ id: number; label: string; address: string; contactName: string; contactPhone: string }[]>([]);
+  const [orders, setOrders] = useState<OrderSummary[]>([]);
 
   useEffect(() => {
     if (!token) {
       setAddresses([]);
+      setOrders([]);
       return;
     }
     fetchAddresses(token).then(setAddresses).catch(() => setAddresses([]));
+    fetchOrders(token).then(setOrders).catch(() => setOrders([]));
   }, [token]);
 
   if (!token) {
@@ -2525,9 +2567,31 @@ function ProfileSection({
         <article className="panel account-stat-card">
           <span className="status-dot" />
           <p className="eyebrow">Order history</p>
-          <h2>Live API</h2>
-          <p className="muted">Order list and receipt details load from customer endpoints.</p>
+          <h2>{orders.length}</h2>
+          <p className="muted">{orders.length ? `${orders[0].status} latest order status` : "Order list and receipt details load from customer endpoints."}</p>
         </article>
+      </div>
+      <div className="account-lists">
+        <section className="panel account-list-card">
+          <SectionHeader title="Saved addresses" subtitle="Used by delivery checkout" />
+          {addresses.length ? addresses.slice(0, 3).map((address) => (
+            <article key={address.id}>
+              <strong>{address.label}</strong>
+              <span>{address.address}</span>
+              <small>{address.contactName} / {address.contactPhone}</small>
+            </article>
+          )) : <p className="muted">No saved addresses yet. Add one during checkout.</p>}
+        </section>
+        <section className="panel account-list-card">
+          <SectionHeader title="Recent orders" subtitle="Receipt details stay in order history" />
+          {orders.length ? orders.slice(0, 3).map((order) => (
+            <article key={order.id}>
+              <strong>Order #{order.id}</strong>
+              <span>{formatPrice(config, order.amount)}</span>
+              <small>{order.status} / {order.paymentStatus}</small>
+            </article>
+          )) : <p className="muted">No recent orders yet.</p>}
+        </section>
       </div>
     </section>
   );
