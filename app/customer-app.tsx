@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, MouseEvent, useEffect, useState } from "react";
 import {
   addAddress,
   apiRequest,
@@ -33,7 +33,7 @@ import {
   verifyPhoneOtp
 } from "@/lib/api";
 
-type Section = "menu" | "live-menu" | "cart" | "checkout" | "orders" | "profile";
+type Section = "menu" | "live-menu" | "product" | "cart" | "checkout" | "orders" | "profile";
 type PaymentState =
   | "idle"
   | "placing_order"
@@ -325,6 +325,7 @@ export default function CustomerApp() {
   const [token, setTokenState] = useState<string | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const [modalProduct, setModalProduct] = useState<Product | null>(null);
+  const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
   const [cartFly, setCartFly] = useState<CartFly | null>(null);
@@ -412,11 +413,12 @@ export default function CustomerApp() {
     }, 720);
   }
 
-  function addLine(product: Product, selections: SelectionMap = {}, source?: HTMLElement | null) {
+  function addLine(product: Product, selections: SelectionMap = {}, source?: HTMLElement | null, quantity = 1) {
     const validation = validateSelections(product, selections);
     if (validation) {
       setNotice(validation);
-      setModalProduct(product);
+      setDetailProduct(product);
+      setSection("product");
       return;
     }
 
@@ -424,12 +426,18 @@ export default function CustomerApp() {
     setCart((current) => {
       const existing = current.find((line) => line.key === key);
       if (existing) {
-        return current.map((line) => (line.key === key ? { ...line, quantity: line.quantity + 1 } : line));
+        return current.map((line) => (line.key === key ? { ...line, quantity: line.quantity + quantity } : line));
       }
 
-      return [...current, { key, product, selections, quantity: 1 }];
+      return [...current, { key, product, selections, quantity }];
     });
     triggerCartFly(product, source);
+  }
+
+  function openProduct(product: Product) {
+    setDetailProduct(product);
+    setSection("product");
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
   }
 
   function runProductSearch(term = query) {
@@ -526,6 +534,7 @@ export default function CustomerApp() {
           setSelectedBranchId={setSelectedBranchId}
           onAdd={addLine}
           onConfigure={setModalProduct}
+          onViewProduct={openProduct}
         />
       ) : null}
 
@@ -542,11 +551,23 @@ export default function CustomerApp() {
           selectedBranchId={selectedBranchId}
           onAdd={addLine}
           onConfigure={setModalProduct}
+          onViewProduct={openProduct}
+        />
+      ) : null}
+
+      {section === "product" && detailProduct ? (
+        <ProductDetailSection
+          config={config}
+          product={detailProduct}
+          relatedProducts={products.filter((product) => product.id !== detailProduct.id).slice(0, 3)}
+          onBack={() => setSection("live-menu")}
+          onAdd={addLine}
+          onViewProduct={openProduct}
         />
       ) : null}
 
       {section === "cart" ? (
-        <CartSection config={config} cart={cart} setCart={setCart} setSection={setSection} />
+        <CartSection config={config} cart={cart} setCart={setCart} setSection={setSection} onEdit={(product) => setModalProduct(product)} />
       ) : null}
 
       {section === "checkout" ? (
@@ -568,7 +589,7 @@ export default function CustomerApp() {
       ) : null}
 
       {section === "profile" ? (
-        <ProfileSection token={token} persistToken={persistToken} setSection={setSection} />
+        <ProfileSection config={config} token={token} persistToken={persistToken} setSection={setSection} />
       ) : null}
 
       <FloatingCartDock
@@ -760,7 +781,8 @@ function MenuSection({
   selectedBranchId,
   setSelectedBranchId,
   onAdd,
-  onConfigure
+  onConfigure,
+  onViewProduct
 }: {
   config: AppConfig | null;
   products: Product[];
@@ -774,6 +796,7 @@ function MenuSection({
   setSelectedBranchId: (value: number) => void;
   onAdd: (product: Product, selections?: SelectionMap, source?: HTMLElement | null) => void;
   onConfigure: (product: Product) => void;
+  onViewProduct: (product: Product) => void;
 }) {
   const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY);
   const [heroIndex, setHeroIndex] = useState(0);
@@ -935,9 +958,13 @@ function MenuSection({
           {popular.map((product, index) => (
             <article className={`restaurant-card reveal-card ${index === 0 ? "featured-restaurant" : ""}`} key={product.id} style={{ ["--stagger" as string]: `${index * 55}ms` }}>
               <button className="favorite-pill" type="button" aria-label="Add favorite">Fav</button>
-              <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
+              <button className="card-media-button" onClick={() => onViewProduct(product)} type="button" aria-label={`View ${product.name}`}>
+                <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
+              </button>
               <div>
-                <h3>{product.name}</h3>
+                <button className="card-title-button" onClick={() => onViewProduct(product)} type="button">
+                  <h3>{product.name}</h3>
+                </button>
                 <p>{product.description}</p>
                 <span className="restaurant-meta">
                   <span>{product.deliveryEta}</span>
@@ -958,10 +985,14 @@ function MenuSection({
         <div className="deal-grid">
           {deals.map((product, index) => (
             <article className={`deal-card reveal-card ${index < 2 ? "wide-deal" : ""}`} key={product.id} style={{ ["--stagger" as string]: `${index * 55}ms` }}>
-              <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
+              <button className="card-media-button" onClick={() => onViewProduct(product)} type="button" aria-label={`View ${product.name}`}>
+                <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
+              </button>
               <span>{10 + index * 5} Mins</span>
               <div>
-                <h3>{product.name}</h3>
+                <button className="card-title-button" onClick={() => onViewProduct(product)} type="button">
+                  <h3>{product.name}</h3>
+                </button>
                 <p>{product.description}</p>
                 <strong>{formatPrice(config, product.discountPrice ?? product.price)}</strong>
                 <button className="quick-add-btn" onClick={(event) => addProduct(product, event.currentTarget)} type="button" aria-label={product.variations.length ? `Customize ${product.name}` : `Add ${product.name}`}>+</button>
@@ -1070,7 +1101,8 @@ function LiveMenuSection({
   runProductSearch,
   selectedBranchId,
   onAdd,
-  onConfigure
+  onConfigure,
+  onViewProduct
 }: {
   config: AppConfig | null;
   products: Product[];
@@ -1083,6 +1115,7 @@ function LiveMenuSection({
   selectedBranchId: number | null;
   onAdd: (product: Product, selections?: SelectionMap, source?: HTMLElement | null) => void;
   onConfigure: (product: Product) => void;
+  onViewProduct: (product: Product) => void;
 }) {
   const [showFullMenu, setShowFullMenu] = useState(false);
   const [activeCategory, setActiveCategory] = useState(ALL_CATEGORY);
@@ -1136,18 +1169,20 @@ function LiveMenuSection({
         {!loading && displayProducts.length ? <div className="product-grid">
           {fullMenuProducts.map((product, index) => (
             <article className="product-card reveal-card" key={product.id} style={{ ["--stagger" as string]: `${index * 45}ms` }}>
-              <div className="product-image">
+              <button className="product-image card-media-button" onClick={() => onViewProduct(product)} type="button" aria-label={`View ${product.name}`}>
                 <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} loading="lazy" />
                 {product.variations.length ? <span className="product-badge">Customizable</span> : null}
-              </div>
+              </button>
               <div className="product-body">
                 <div>
                   <span className="dish-meta">{product.deliveryEta} / {product.rating.toFixed(1)} rated</span>
-                  <h2>{product.name}</h2>
+                  <button className="card-title-button" onClick={() => onViewProduct(product)} type="button">
+                    <h2>{product.name}</h2>
+                  </button>
                   <p>{product.description}</p>
                 </div>
                 <div className="product-meta">
-                  <span>{product.variations.length ? `${product.variations.length} option groups` : "Ready to add"}</span>
+                  <span>{product.variations.length ? `${product.variations.length} option group${product.variations.length === 1 ? "" : "s"}` : product.deliveryEta}</span>
                   <strong>{formatPrice(config, product.discountPrice ?? product.price)}</strong>
                 </div>
                 <button className="product-action quick-add-btn" onClick={(event) => addProduct(product, event.currentTarget)} type="button" aria-label={product.variations.length ? `Customize ${product.name}` : `Add ${product.name}`}>
@@ -1266,6 +1301,211 @@ function EmptyCartState({ config, compact = false }: { config: AppConfig | null;
       <h3>Cart is empty</h3>
       <p>Chef is waiting for your order.</p>
     </div>
+  );
+}
+
+function productIngredientChips(product: Product) {
+  const words = `${product.description} ${product.name}`
+    .split(/[,./&+]| with | and | in | on /i)
+    .map((part) => part.trim())
+    .filter((part) => part.length > 2 && part.length < 34);
+  const unique = Array.from(new Set(words));
+  return unique.slice(0, 8);
+}
+
+function ProductDetailSection({
+  config,
+  product,
+  relatedProducts,
+  onBack,
+  onAdd,
+  onViewProduct
+}: {
+  config: AppConfig | null;
+  product: Product;
+  relatedProducts: Product[];
+  onBack: () => void;
+  onAdd: (product: Product, selections?: SelectionMap, source?: HTMLElement | null, quantity?: number) => void;
+  onViewProduct: (product: Product) => void;
+}) {
+  const [selections, setSelections] = useState<SelectionMap>({});
+  const [quantity, setQuantity] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+  const basePrice = product.discountPrice ?? product.price;
+  const optionTotal = Object.values(selections)
+    .flat()
+    .reduce((sum, option) => sum + option.price, 0);
+  const unitTotal = basePrice + optionTotal;
+  const ingredients = productIngredientChips(product);
+
+  useEffect(() => {
+    setSelections({});
+    setQuantity(1);
+    setError(null);
+  }, [product.id]);
+
+  function toggle(group: ProductVariation, option: ProductOption) {
+    setError(null);
+    setSelections((current) => {
+      const selected = current[group.id] ?? [];
+      if (group.type === "single") {
+        return { ...current, [group.id]: [option] };
+      }
+
+      const exists = selected.some((entry) => entry.id === option.id);
+      if (exists) {
+        return { ...current, [group.id]: selected.filter((entry) => entry.id !== option.id) };
+      }
+      if (selected.length >= group.max) {
+        setError(`${group.name} allows up to ${group.max} option(s).`);
+        return current;
+      }
+      return { ...current, [group.id]: [...selected, option] };
+    });
+  }
+
+  function submit(event: MouseEvent<HTMLButtonElement>) {
+    const validation = validateSelections(product, selections);
+    if (validation) {
+      setError(validation);
+      return;
+    }
+    onAdd(product, selections, event.currentTarget, quantity);
+  }
+
+  return (
+    <section className="product-detail-page">
+      <button className="back-link" onClick={onBack} type="button">Back to foods</button>
+      <div className="product-detail-hero">
+        <div className="product-detail-image">
+          <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
+        </div>
+        <div className="product-detail-copy">
+          <p className="eyebrow">Chef pick</p>
+          <h1>{product.name}</h1>
+          <p>{product.description}</p>
+          <div className="detail-meta-row">
+            <span className="dish-meta">{product.deliveryEta}</span>
+            <span className="dish-meta positive">{product.rating.toFixed(1)} rated</span>
+            <span className="detail-price">{formatPrice(config, basePrice)}</span>
+          </div>
+          <div className="ingredient-block">
+            <h2>Ingredients</h2>
+            <div className="ingredient-chips">
+              {ingredients.length ? ingredients.map((item) => <span key={item}>{item}</span>) : <span>Ingredient details are pending from the menu API.</span>}
+            </div>
+            <p className="muted">Structured ingredient/allergen fields should be exposed by the API for stronger filtering later.</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="product-detail-layout">
+        <div className="panel product-customizer">
+          <div className="section-heading">
+            <p className="eyebrow">Customize</p>
+            <h1>Make it yours</h1>
+            <p className="muted">Choose size, extras, spice, or add-ons when the menu API provides them.</p>
+          </div>
+
+          {product.variations.length ? (
+            <div className="detail-option-stack">
+              {product.variations.map((group, groupIndex) => {
+                const selectedCount = selections[group.id]?.length ?? 0;
+                const rule = group.type === "single"
+                  ? "Choose one"
+                  : group.min === 0
+                    ? `Choose up to ${group.max}`
+                    : group.min === group.max
+                      ? `Choose ${group.max}`
+                      : `Choose ${group.min}-${group.max}`;
+
+                return (
+                  <fieldset className="option-group detail-option-group" key={group.id}>
+                    <legend>
+                      <span className="option-group-number">{String(groupIndex + 1).padStart(2, "0")}</span>
+                      <span className="option-group-title">
+                        <strong>{group.name}</strong>
+                        <small>{rule}</small>
+                      </span>
+                      <span className={`option-requirement ${group.required ? "required" : ""}`}>{group.required ? "Required" : "Optional"}</span>
+                      {selectedCount ? <span className="option-selected-count">{selectedCount} selected</span> : null}
+                    </legend>
+                    <div className="option-list">
+                      {group.values.map((option) => {
+                        const checked = (selections[group.id] ?? []).some((entry) => entry.id === option.id);
+                        return (
+                          <label className={`option-row ${checked ? "selected" : ""}`} key={option.id}>
+                            <input
+                              type={group.type === "single" ? "radio" : "checkbox"}
+                              name={`detail-${group.id}`}
+                              checked={checked}
+                              onChange={() => toggle(group, option)}
+                            />
+                            <span className="option-choice-mark" aria-hidden="true">
+                              <svg viewBox="0 0 16 16">
+                                <path d="m3.5 8.2 2.7 2.7 6.3-6.3" />
+                              </svg>
+                            </span>
+                            <span className="option-name">{option.name}</span>
+                            <strong className="option-price">{option.price ? `+ ${formatPrice(config, option.price)}` : "Included"}</strong>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="empty detail-empty">
+              This item has no API-provided variations yet. The base item can be added directly.
+            </div>
+          )}
+          {error ? <p className="modal-error" role="alert">{error}</p> : null}
+        </div>
+
+        <aside className="panel product-detail-summary">
+          <p className="eyebrow">Live total</p>
+          <h2>{formatPrice(config, unitTotal * quantity)}</h2>
+          <dl>
+            <div>
+              <dt>Base</dt>
+              <dd>{formatPrice(config, basePrice)}</dd>
+            </div>
+            <div>
+              <dt>Options</dt>
+              <dd>{formatPrice(config, optionTotal)}</dd>
+            </div>
+            <div>
+              <dt>Quantity</dt>
+              <dd>{quantity}</dd>
+            </div>
+          </dl>
+          <div className="quantity-row">
+            <button onClick={() => setQuantity((value) => Math.max(1, value - 1))} type="button" aria-label="Reduce quantity">-</button>
+            <strong>{quantity}</strong>
+            <button onClick={() => setQuantity((value) => value + 1)} type="button" aria-label="Increase quantity">+</button>
+          </div>
+          <button className="primary-cta" onClick={submit} type="button">Add to cart</button>
+          <p className="muted">Final availability, fees, and payment rules are validated again during checkout.</p>
+        </aside>
+      </div>
+
+      {relatedProducts.length ? (
+        <section className="panel related-products">
+          <SectionHeader title="You may also like" subtitle="Food-forward picks from the same live menu" />
+          <div className="related-grid">
+            {relatedProducts.map((item) => (
+              <button className="related-card" key={item.id} onClick={() => onViewProduct(item)} type="button">
+                <SafeImage src={item.imageUrl} alt="" fallbackText={item.name} />
+                <span>{item.name}</span>
+                <strong>{formatPrice(config, item.discountPrice ?? item.price)}</strong>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+    </section>
   );
 }
 
@@ -1535,13 +1775,19 @@ function CartSection({
   config,
   cart,
   setCart,
-  setSection
+  setSection,
+  onEdit
 }: {
   config: AppConfig | null;
   cart: CartLine[];
   setCart: (value: CartLine[]) => void;
   setSection: (section: Section) => void;
+  onEdit: (product: Product) => void;
 }) {
+  const [promo, setPromo] = useState("");
+  const subtotal = cartTotal(cart);
+  const itemCount = cart.reduce((sum, line) => sum + line.quantity, 0);
+
   function updateQty(key: string, quantity: number) {
     if (quantity <= 0) {
       setCart(cart.filter((line) => line.key !== key));
@@ -1556,53 +1802,77 @@ function CartSection({
         <div className="section-heading">
           <p className="eyebrow">Order review</p>
           <h1>Your cart</h1>
-          <p className="muted">Make final quantity changes before the server validates pricing at checkout.</p>
+          <p className="muted">Review quantities, selected options, and estimated subtotal before checkout validates fees and availability.</p>
         </div>
         {!cart.length ? <EmptyCartState config={config} /> : null}
-        {cart.map((line) => (
-          <article className="cart-line" key={line.key}>
-            <div className="cart-thumb">
-              <SafeImage src={line.product.imageUrl} alt="" fallbackText={line.product.name} />
-            </div>
-            <div>
-              <h2>{line.product.name}</h2>
-              {Object.entries(line.selections).map(([groupId, options]) => (
-                <p className="muted" key={groupId}>
-                  {options.map((option) => option.name).join(", ")}
-                </p>
-              ))}
-            </div>
-            <div className="qty">
-              <button onClick={() => updateQty(line.key, line.quantity - 1)} type="button">
-                -
-              </button>
-              <span>{line.quantity}</span>
-              <button onClick={() => updateQty(line.key, line.quantity + 1)} type="button">
-                +
-              </button>
-            </div>
-            <strong className="line-price">{formatPrice(config, lineUnitPrice(line) * line.quantity)}</strong>
-          </article>
-        ))}
+        {cart.length ? (
+          <div className="cart-line-stack">
+            {cart.map((line) => (
+              <article className="cart-line" key={line.key}>
+                <div className="cart-thumb">
+                  <SafeImage src={line.product.imageUrl} alt="" fallbackText={line.product.name} />
+                </div>
+                <div className="cart-line-copy">
+                  <h2>{line.product.name}</h2>
+                  {Object.entries(line.selections).length ? (
+                    <div className="selected-options">
+                      {Object.entries(line.selections).map(([groupId, options]) => (
+                        <span key={groupId}>{options.map((option) => option.name).join(", ")}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted">Base item</p>
+                  )}
+                  <div className="cart-line-actions">
+                    <button onClick={() => onEdit(line.product)} type="button">Edit options</button>
+                    <button onClick={() => updateQty(line.key, 0)} type="button">Remove</button>
+                  </div>
+                </div>
+                <div className="qty">
+                  <button onClick={() => updateQty(line.key, line.quantity - 1)} type="button" aria-label={`Reduce ${line.product.name}`}>
+                    -
+                  </button>
+                  <span>{line.quantity}</span>
+                  <button onClick={() => updateQty(line.key, line.quantity + 1)} type="button" aria-label={`Increase ${line.product.name}`}>
+                    +
+                  </button>
+                </div>
+                <strong className="line-price">{formatPrice(config, lineUnitPrice(line) * line.quantity)}</strong>
+              </article>
+            ))}
+          </div>
+        ) : null}
       </div>
       <aside className="panel checkout-summary order-ticket">
         <p className="eyebrow">Order ticket</p>
-        <h2>{formatPrice(config, cartTotal(cart))}</h2>
+        <h2>{formatPrice(config, subtotal)}</h2>
+        <div className="promo-box">
+          <label htmlFor="promo-code">Promo code</label>
+          <div>
+            <input id="promo-code" value={promo} onChange={(event) => setPromo(event.target.value)} placeholder="Enter code" />
+            <button disabled={!promo.trim()} type="button">Apply</button>
+          </div>
+          <small>Promo validation needs a backend endpoint before discounts can be applied.</small>
+        </div>
         <dl>
           <div>
             <dt>Items</dt>
-            <dd>{cart.reduce((sum, line) => sum + line.quantity, 0)}</dd>
+            <dd>{itemCount}</dd>
           </div>
           <div>
-            <dt>Estimated subtotal</dt>
-            <dd>{formatPrice(config, cartTotal(cart))}</dd>
+            <dt>Subtotal</dt>
+            <dd>{formatPrice(config, subtotal)}</dd>
           </div>
           <div>
-            <dt>Final validation</dt>
-            <dd>Laravel</dd>
+            <dt>Delivery / service fees</dt>
+            <dd>At checkout</dd>
+          </div>
+          <div>
+            <dt>Estimated total</dt>
+            <dd>{formatPrice(config, subtotal)}</dd>
           </div>
         </dl>
-        <p className="muted">Option prices are included here; taxes, delivery and order rules remain backend-owned.</p>
+        <p className="muted">Backend still owns final taxes, delivery fees, menu availability, and payment rules.</p>
         <button disabled={!cart.length} onClick={() => setSection("checkout")} type="button">
           Continue to checkout
         </button>
@@ -1664,8 +1934,11 @@ function AuthPanel({
 
   return (
     <section className="panel auth-panel">
-      <p className="eyebrow">Checkout requires login</p>
-      <h1>Sign in to continue</h1>
+      <div className="auth-intro">
+        <p className="eyebrow">Customer access</p>
+        <h1>{mode === "register" ? "Create your account" : "Sign in to continue"}</h1>
+        <p className="muted">Login is required before checkout so addresses, order history, and payment status stay tied to the customer.</p>
+      </div>
       <div className="segmented">
         {(["password", "otp", "register", "social"] as const).map((item) => (
           <button className={mode === item ? "active" : ""} onClick={() => setMode(item)} type="button" key={item}>
@@ -1711,10 +1984,11 @@ function AuthPanel({
 
         {message ? <p className="form-message">{message}</p> : null}
         {error ? <p className="form-error">{error}</p> : null}
-        <button disabled={busy || (mode === "social" && !config?.socialLogin.google)} type="submit">
+        <button className="primary-cta" disabled={busy || (mode === "social" && !config?.socialLogin.google)} type="submit">
           {busy ? "Working..." : mode === "otp" && !otp ? "Request OTP" : "Continue"}
         </button>
       </form>
+      <p className="muted auth-note">Registration currently follows the API OTP flow. Password setup and social login depend on backend configuration.</p>
     </section>
   );
 }
@@ -1905,21 +2179,38 @@ function CheckoutSection({
   return (
     <section className="checkout-layout">
       <form className="panel checkout-panel" onSubmit={submitOrder}>
-        <p className="eyebrow">Stateful checkout</p>
-        <h1>Checkout</h1>
-
-        <div className="segmented">
-          {config?.delivery ? (
-            <button className={orderType === "delivery" ? "active" : ""} onClick={() => setOrderType("delivery")} type="button">
-              Delivery
-            </button>
-          ) : null}
-          {config?.selfPickup ? (
-            <button className={orderType === "take_away" ? "active" : ""} onClick={() => setOrderType("take_away")} type="button">
-              Pickup
-            </button>
-          ) : null}
+        <div className="section-heading">
+          <p className="eyebrow">Secure checkout</p>
+          <h1>Checkout</h1>
+          <p className="muted">Choose fulfillment, confirm payment, and place the order with the authenticated customer token.</p>
         </div>
+        <div className="checkout-progress" aria-label="Checkout progress">
+          <span className="active">Cart</span>
+          <span className={orderType ? "active" : ""}>Fulfillment</span>
+          <span className={selectedChoice ? "active" : ""}>Payment</span>
+          <span className={order ? "active" : ""}>Confirmed</span>
+        </div>
+
+        <section className="subsection checkout-choice-section">
+          <div>
+            <h2>Fulfillment</h2>
+            <p className="muted">Use delivery when an address is saved, or pickup from the selected branch.</p>
+          </div>
+          <div className="fulfillment-toggle">
+            {config?.delivery ? (
+              <button className={orderType === "delivery" ? "active" : ""} onClick={() => setOrderType("delivery")} type="button">
+                <strong>Delivery</strong>
+                <span>Send to saved address</span>
+              </button>
+            ) : null}
+            {config?.selfPickup ? (
+              <button className={orderType === "take_away" ? "active" : ""} onClick={() => setOrderType("take_away")} type="button">
+                <strong>Pickup</strong>
+                <span>Collect from branch</span>
+              </button>
+            ) : null}
+          </div>
+        </section>
 
         {orderType === "delivery" ? (
           <section className="subsection">
@@ -1946,7 +2237,10 @@ function CheckoutSection({
         ) : null}
 
         <section className="subsection">
-          <h2>Payment</h2>
+          <div>
+            <h2>Payment</h2>
+            <p className="muted">{gateway ? `${gateway.gatewayTitle} ready for digital checkout.` : "Cash/offline checkout follows the active restaurant config."}</p>
+          </div>
           {!choices.length ? (
             <p className="form-error">No checkout payment methods are enabled by config.</p>
           ) : null}
@@ -1971,16 +2265,33 @@ function CheckoutSection({
           ) : null}
         </section>
 
-        <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Order note" />
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="Order note for the kitchen or rider" />
         {error ? <p className="form-error">{error}</p> : null}
-        <button disabled={!cart.length || !selectedChoice || paymentState === "placing_order" || paymentState === "initiating_payment"} type="submit">
+        <button className="primary-cta" disabled={!cart.length || !selectedChoice || paymentState === "placing_order" || paymentState === "initiating_payment"} type="submit">
           {paymentState === "placing_order" ? "Placing order..." : paymentState === "initiating_payment" ? "Starting payment..." : "Place order"}
         </button>
       </form>
 
-      <aside className="panel status-panel">
-        <p className="eyebrow">Current state</p>
-        <h2 className={`state-pill ${statusTone(paymentState)}`}>{paymentState}</h2>
+      <aside className="panel status-panel checkout-order-summary">
+        <p className="eyebrow">{order ? "Order confirmation" : "Order summary"}</p>
+        {order ? (
+          <div className="confirmation-card">
+            <span className={`state-pill ${statusTone(paymentState)}`}>{paymentState.replaceAll("_", " ")}</span>
+            <h2>Order #{order.orderId}</h2>
+            <p>{paymentState === "paid" ? "Payment confirmed." : paymentState === "manual_review_if_offline" ? "Order placed for offline settlement." : "Order placed. Payment/status updates continue below."}</p>
+          </div>
+        ) : (
+          <h2>{formatPrice(config, total)}</h2>
+        )}
+        <div className="summary-lines">
+          {cart.map((line) => (
+            <div key={line.key}>
+              <span>{line.quantity} x {line.product.name}</span>
+              <strong>{formatPrice(config, lineUnitPrice(line) * line.quantity)}</strong>
+            </div>
+          ))}
+          {!cart.length ? <p className="muted">Cart is empty. Add items before checkout.</p> : null}
+        </div>
         <dl>
           <div>
             <dt>Total</dt>
@@ -2001,7 +2312,12 @@ function CheckoutSection({
         </dl>
         {paymentSession?.message ? <p className="muted">{paymentSession.message}</p> : null}
         {paymentState === "waiting_for_payment" ? <p className="muted">Payment status refreshes every 7 seconds.</p> : null}
-        {paymentState === "paid" ? <button onClick={() => setSection("orders")} type="button">View orders</button> : null}
+        {["failed", "cancelled", "expired"].includes(paymentState) ? <p className="form-error">Payment did not complete. Keep the order reference visible and retry from the supported payment flow.</p> : null}
+        {paymentState === "paid" || paymentState === "manual_review_if_offline" ? <button onClick={() => setSection("orders")} type="button">View orders</button> : null}
+        <div className="state-coverage">
+          <span>States handled</span>
+          <small>pending / paid / failed / cancelled / offline review</small>
+        </div>
       </aside>
     </section>
   );
@@ -2114,32 +2430,79 @@ function OrdersSection({
 }
 
 function ProfileSection({
+  config,
   token,
   persistToken,
   setSection
 }: {
+  config: AppConfig | null;
   token: string | null;
   persistToken: (token: string | null) => void;
   setSection: (section: Section) => void;
 }) {
+  const [addresses, setAddresses] = useState<{ id: number; label: string; address: string; contactName: string; contactPhone: string }[]>([]);
+
+  useEffect(() => {
+    if (!token) {
+      setAddresses([]);
+      return;
+    }
+    fetchAddresses(token).then(setAddresses).catch(() => setAddresses([]));
+  }, [token]);
+
+  if (!token) {
+    return (
+      <section className="two-column account-page">
+        <AuthPanel config={config} persistToken={persistToken} />
+        <aside className="panel account-side-card">
+          <p className="eyebrow">Why sign in?</p>
+          <h2>Checkout, addresses, and orders live behind customer auth.</h2>
+          <p className="muted">Guest browsing stays open, but placing orders requires the API bearer token.</p>
+        </aside>
+      </section>
+    );
+  }
+
   return (
-    <section className="panel profile-panel">
-      <p className="eyebrow">Session</p>
-      <h1>{token ? "Signed in" : "Signed out"}</h1>
-      <p className="muted">
-        The customer token is kept in sessionStorage for this browser session and attached as Bearer auth for checkout and customer routes.
-      </p>
-      {token ? (
-        <button
-          onClick={() => {
-            persistToken(null);
-            setSection("menu");
-          }}
-          type="button"
-        >
-          Sign out
-        </button>
-      ) : null}
+    <section className="profile-panel account-dashboard">
+      <div className="panel account-hero-card">
+        <p className="eyebrow">Account dashboard</p>
+        <h1>Welcome back</h1>
+        <p className="muted">Manage order history, saved delivery addresses, and the active browser session.</p>
+        <div className="account-actions">
+          <button onClick={() => setSection("orders")} type="button">View orders</button>
+          <button onClick={() => setSection("checkout")} type="button">Checkout</button>
+          <button
+            onClick={() => {
+              persistToken(null);
+              setSection("menu");
+            }}
+            type="button"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+      <div className="account-grid">
+        <article className="panel account-stat-card">
+          <span className="status-dot positive" />
+          <p className="eyebrow">Session</p>
+          <h2>Authenticated</h2>
+          <p className="muted">Bearer token is stored in sessionStorage for this browser session.</p>
+        </article>
+        <article className="panel account-stat-card">
+          <span className="status-dot" />
+          <p className="eyebrow">Saved addresses</p>
+          <h2>{addresses.length}</h2>
+          <p className="muted">{addresses.length ? addresses.map((address) => address.label).join(", ") : "Add an address during checkout."}</p>
+        </article>
+        <article className="panel account-stat-card">
+          <span className="status-dot" />
+          <p className="eyebrow">Order history</p>
+          <h2>Live API</h2>
+          <p className="muted">Order list and receipt details load from customer endpoints.</p>
+        </article>
+      </div>
     </section>
   );
 }
