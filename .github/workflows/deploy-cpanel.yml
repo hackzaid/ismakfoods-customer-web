@@ -45,7 +45,9 @@ jobs:
           rm -rf deploy
           mkdir -p deploy/.next
           cp -R .next/standalone/. deploy/
+          rm -rf deploy/node_modules
           cp -R .next/static deploy/.next/static
+          cp package-lock.json deploy/package-lock.json
           if [ -d public ]; then
             cp -R public deploy/public
           fi
@@ -77,12 +79,19 @@ jobs:
             --exclude='tmp/' \
             --exclude='logs/' \
             --exclude='nodevenv/' \
+            --exclude='node_modules' \
             --exclude='.well-known/' \
             -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
             deploy/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
 
-      - name: Restart cPanel Node.js app
+      - name: Install dependencies and restart cPanel Node.js app
         run: |
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
-            "mkdir -p '$CPANEL_DEPLOY_PATH/tmp' && touch '$CPANEL_DEPLOY_PATH/tmp/restart.txt'"
+            "cd '$CPANEL_DEPLOY_PATH' && \
+             if [ -e node_modules ] && [ ! -L node_modules ]; then \
+               echo 'CloudLinux requires node_modules to be its managed symlink, but a real node_modules path exists.' >&2; \
+               exit 1; \
+             fi && \
+             npm install --omit=dev --no-audit --no-fund && \
+             mkdir -p tmp && touch tmp/restart.txt"

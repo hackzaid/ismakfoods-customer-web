@@ -71,8 +71,10 @@ Every push to `main` runs:
 1. `npm ci`
 2. `npm run build`
 3. Packages `.next/standalone`, `.next/static`, and `public` into `deploy/`.
-4. Syncs the standalone server files to the cPanel application root with `rsync` over SSH.
-5. Touches `tmp/restart.txt` so Passenger/cPanel restarts the Node.js app.
+4. Removes the generated standalone `node_modules` folder from the upload package because CloudLinux requires `node_modules` in the application root to be its own symlink.
+5. Syncs the standalone server files to the cPanel application root with `rsync` over SSH while preserving CloudLinux-managed paths.
+6. Runs `npm install --omit=dev` remotely so dependencies are installed through CloudLinux's `node_modules` symlink.
+7. Touches `tmp/restart.txt` so Passenger/cPanel restarts the Node.js app.
 
 You can also run the workflow manually from GitHub Actions using `workflow_dispatch`.
 
@@ -81,5 +83,7 @@ You can also run the workflow manually from GitHub Actions using `workflow_dispa
 - cPanel should be configured as a Node.js application.
 - The application root should match `CPANEL_DEPLOY_PATH`.
 - The application startup file should be `server.js`.
-- cPanel does not need to run `npm install`; GitHub Actions uploads the standalone app with its required production dependencies.
+- Create/save the cPanel Node.js app before deploying so CloudLinux creates its managed `node_modules` symlink.
+- Do not manually upload a real `node_modules` directory into the application root.
+- GitHub Actions runs `npm install --omit=dev` on the server after upload so dependencies land in CloudLinux's managed dependency folder.
 - The cPanel server must allow SSH access and have `rsync` available. If `rsync` is unavailable, the deploy step can be changed to an `scp` upload.
