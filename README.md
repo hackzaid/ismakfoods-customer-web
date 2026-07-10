@@ -12,7 +12,7 @@ npm run dev
 
 ## Deployment
 
-GitHub Actions builds a static export and uploads `out/` to cPanel. See [DEPLOYMENT.md](DEPLOYMENT.md) for required repository secrets and cPanel notes.
+GitHub Actions builds a Next.js standalone server and uploads it to a cPanel Node.js app over SSH. See [DEPLOYMENT.md](DEPLOYMENT.md) for required repository secrets and cPanel notes.
 
 Defaults point to:
 

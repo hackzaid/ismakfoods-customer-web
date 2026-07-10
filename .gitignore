@@ -4,6 +4,7 @@ node_modules
 .codex
 out
 dist
+deploy
 coverage
 .env*.local
 .codex-dev.*.log
@@ -12,4 +13,5 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 next-dev.*.log
+standalone-test.*.log
 tsconfig.tsbuildinfo

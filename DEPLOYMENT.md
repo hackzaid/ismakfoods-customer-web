@@ -1,6 +1,6 @@
 # Deployment
 
-This app is built as a static Next.js export and deployed to cPanel from GitHub Actions over SSH.
+This app is built as a Next.js standalone server and deployed to a cPanel Node.js app from GitHub Actions over SSH.
 
 ## GitHub Secrets
 
@@ -9,7 +9,7 @@ Create these repository secrets in GitHub under `Settings > Secrets and variable
 - `CPANEL_SSH_HOST`: cPanel SSH host, for example `server.example.com`.
 - `CPANEL_SSH_USER`: cPanel SSH username.
 - `CPANEL_SSH_PRIVATE_KEY_B64`: Base64-encoded private SSH key allowed to access the cPanel account.
-- `CPANEL_DEPLOY_PATH`: Absolute remote target path, for example `/home/username/public_html` or `/home/username/public_html/customer`.
+- `CPANEL_DEPLOY_PATH`: Absolute cPanel application root, for example `/home/username/demo.ismakfoods.com`.
 - `CPANEL_SSH_PORT`: Optional SSH port. If omitted, the workflow uses `22`.
 
 `CPANEL_SSH_PRIVATE_KEY` is also supported as a raw multiline private key, but `CPANEL_SSH_PRIVATE_KEY_B64` is preferred because it avoids GitHub secret newline formatting issues.
@@ -46,18 +46,40 @@ Create these under `Settings > Secrets and variables > Actions > Variables` only
 - `NEXT_PUBLIC_API_BASE_URL`: Defaults to `https://api.ismakfoods.com/api/v1`.
 - `NEXT_PUBLIC_API_ORIGIN`: Defaults to `https://api.ismakfoods.com`.
 
+## cPanel Node.js App Settings
+
+Use cPanel's Node.js app screen with these values:
+
+- Node.js version: `22.x`
+- Application mode: `Production`
+- Application root: same path as `CPANEL_DEPLOY_PATH`, for example `/home/afripnxq/demo.ismakfoods.com`
+- Application URL: your domain or subdomain, for example `demo.ismakfoods.com`
+- Application startup file: `server.js`
+
+Add these cPanel environment variables if the UI requires runtime values:
+
+- `NODE_ENV`: `production`
+- `NEXT_PUBLIC_API_BASE_URL`: `https://api.ismakfoods.com/api/v1`
+- `NEXT_PUBLIC_API_ORIGIN`: `https://api.ismakfoods.com`
+
+`NEXT_PUBLIC_BACKEND_URL` is not used by this app.
+
 ## Deploy Flow
 
 Every push to `main` runs:
 
 1. `npm ci`
 2. `npm run build`
-3. Syncs the generated `out/` folder to cPanel with `rsync` over SSH.
+3. Packages `.next/standalone`, `.next/static`, and `public` into `deploy/`.
+4. Syncs the standalone server files to the cPanel application root with `rsync` over SSH.
+5. Touches `tmp/restart.txt` so Passenger/cPanel restarts the Node.js app.
 
 You can also run the workflow manually from GitHub Actions using `workflow_dispatch`.
 
 ## cPanel Notes
 
-- The workflow uploads static files only. cPanel does not need to run `npm install` or `npm start`.
-- The remote directory should point at the public web root for the domain or subdomain.
+- cPanel should be configured as a Node.js application.
+- The application root should match `CPANEL_DEPLOY_PATH`.
+- The application startup file should be `server.js`.
+- cPanel does not need to run `npm install`; GitHub Actions uploads the standalone app with its required production dependencies.
 - The cPanel server must allow SSH access and have `rsync` available. If `rsync` is unavailable, the deploy step can be changed to an `scp` upload.

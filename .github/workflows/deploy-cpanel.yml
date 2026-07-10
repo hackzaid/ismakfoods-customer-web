@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build-and-deploy:
-    name: Build static app and deploy over SSH
+    name: Build standalone app and deploy over SSH
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL || 'https://api.ismakfoods.com/api/v1' }}
@@ -37,8 +37,18 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build static export
+      - name: Build standalone app
         run: npm run build
+
+      - name: Prepare cPanel deploy artifact
+        run: |
+          rm -rf deploy
+          mkdir -p deploy/.next
+          cp -R .next/standalone/. deploy/
+          cp -R .next/static deploy/.next/static
+          if [ -d public ]; then
+            cp -R public deploy/public
+          fi
 
       - name: Configure SSH key
         run: |
@@ -60,8 +70,19 @@ jobs:
           ssh-keygen -y -f ~/.ssh/cpanel_key > /dev/null
           ssh-keyscan -p "${CPANEL_SSH_PORT:-22}" "$CPANEL_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Deploy out folder to cPanel
+      - name: Deploy standalone app to cPanel
         run: |
           rsync -az --delete \
+            --exclude='.htaccess' \
+            --exclude='tmp/' \
+            --exclude='logs/' \
+            --exclude='nodevenv/' \
+            --exclude='.well-known/' \
             -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
-            out/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
+            deploy/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
+
+      - name: Restart cPanel Node.js app
+        run: |
+          ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
+            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
+            "mkdir -p '$CPANEL_DEPLOY_PATH/tmp' && touch '$CPANEL_DEPLOY_PATH/tmp/restart.txt'"
