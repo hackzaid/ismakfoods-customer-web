@@ -70,7 +70,7 @@ Add these cPanel environment variables if the UI requires runtime values:
 Every push to `main` runs:
 
 1. `npm ci`
-2. `npm run build`
+2. `npm run build`, which currently forces `next build --webpack` because the cPanel/LiteSpeed origin returned `500` for specific Turbopack-generated static chunks.
 3. Packages `.next/standalone`, `.next/static`, and `public` into `deploy/`.
 4. Removes the generated standalone `node_modules` folder from the upload package because CloudLinux requires `node_modules` in the application root to be its own symlink.
 5. Syncs the standalone server files to the cPanel application root with `rsync` over SSH while preserving CloudLinux-managed paths.
