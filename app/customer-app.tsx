@@ -33,7 +33,7 @@ import {
   verifyPhoneOtp
 } from "@/lib/api";
 
-type Section = "menu" | "live-menu" | "product" | "cart" | "checkout" | "orders" | "profile";
+type Section = "menu" | "live-menu" | "cart" | "checkout" | "orders" | "profile";
 type PaymentState =
   | "idle"
   | "placing_order"
@@ -418,7 +418,6 @@ export default function CustomerApp() {
     if (validation) {
       setNotice(validation);
       setDetailProduct(product);
-      setSection("product");
       return;
     }
 
@@ -436,8 +435,6 @@ export default function CustomerApp() {
 
   function openProduct(product: Product) {
     setDetailProduct(product);
-    setSection("product");
-    window.setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 0);
   }
 
   function runProductSearch(term = query) {
@@ -555,17 +552,6 @@ export default function CustomerApp() {
         />
       ) : null}
 
-      {section === "product" && detailProduct ? (
-        <ProductDetailSection
-          config={config}
-          product={detailProduct}
-          relatedProducts={products.filter((product) => product.id !== detailProduct.id).slice(0, 3)}
-          onBack={() => setSection("live-menu")}
-          onAdd={addLine}
-          onViewProduct={openProduct}
-        />
-      ) : null}
-
       {section === "cart" ? (
         <CartSection config={config} cart={cart} setCart={setCart} setSection={setSection} onEdit={(product) => setModalProduct(product)} />
       ) : null}
@@ -621,6 +607,20 @@ export default function CustomerApp() {
             addLine(product, selections);
             setModalProduct(null);
           }}
+        />
+      ) : null}
+
+      {detailProduct ? (
+        <ProductDetailSection
+          config={config}
+          product={detailProduct}
+          relatedProducts={products.filter((product) => product.id !== detailProduct.id).slice(0, 3)}
+          onClose={() => setDetailProduct(null)}
+          onAdd={(product, selections, source, quantity) => {
+            addLine(product, selections, source, quantity);
+            setDetailProduct(null);
+          }}
+          onViewProduct={openProduct}
         />
       ) : null}
 
@@ -1317,14 +1317,14 @@ function ProductDetailSection({
   config,
   product,
   relatedProducts,
-  onBack,
+  onClose,
   onAdd,
   onViewProduct
 }: {
   config: AppConfig | null;
   product: Product;
   relatedProducts: Product[];
-  onBack: () => void;
+  onClose: () => void;
   onAdd: (product: Product, selections?: SelectionMap, source?: HTMLElement | null, quantity?: number) => void;
   onViewProduct: (product: Product) => void;
 }) {
@@ -1343,6 +1343,23 @@ function ProductDetailSection({
     setQuantity(1);
     setError(null);
   }, [product.id]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [onClose]);
 
   function toggle(group: ProductVariation, option: ProductOption) {
     setError(null);
@@ -1374,15 +1391,22 @@ function ProductDetailSection({
   }
 
   return (
-    <section className="product-detail-page">
-      <button className="back-link" onClick={onBack} type="button">Back to foods</button>
-      <div className="product-detail-hero">
+    <div className="product-detail-backdrop">
+      <button className="modal-scrim product-detail-scrim" onClick={onClose} type="button" aria-label="Close product details" />
+      <section className="product-detail-modal" role="dialog" aria-modal="true" aria-labelledby="product-detail-title">
+        <button className="detail-close" onClick={onClose} type="button" aria-label="Close product details">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m7 7 10 10M17 7 7 17" />
+          </svg>
+        </button>
+        <div className="product-detail-page">
+          <div className="product-detail-hero">
         <div className="product-detail-image">
           <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
         </div>
         <div className="product-detail-copy">
           <p className="eyebrow">Chef pick</p>
-          <h1>{product.name}</h1>
+          <h1 id="product-detail-title">{product.name}</h1>
           <p>{product.description}</p>
           <div className="detail-meta-row">
             <span className="dish-meta">{product.deliveryEta}</span>
@@ -1399,7 +1423,7 @@ function ProductDetailSection({
         </div>
       </div>
 
-      <div className="product-detail-layout">
+          <div className="product-detail-layout">
         <div className="panel product-customizer">
           <div className="section-heading">
             <p className="eyebrow">Customize</p>
@@ -1491,8 +1515,8 @@ function ProductDetailSection({
         </aside>
       </div>
 
-      {relatedProducts.length ? (
-        <section className="panel related-products">
+          {relatedProducts.length ? (
+            <section className="panel related-products">
           <SectionHeader title="You may also like" subtitle="Food-forward picks from the same live menu" />
           <div className="related-grid">
             {relatedProducts.map((item) => (
@@ -1503,9 +1527,11 @@ function ProductDetailSection({
               </button>
             ))}
           </div>
-        </section>
-      ) : null}
-    </section>
+            </section>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
