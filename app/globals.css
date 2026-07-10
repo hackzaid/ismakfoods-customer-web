@@ -1012,13 +1012,39 @@ p {
 }
 
 .category-card img,
+.category-card > .image-fallback,
 .restaurant-card > img,
+.restaurant-card > .image-fallback,
 .deal-card > img,
+.deal-card > .image-fallback,
+.hero-canvas .image-fallback,
 .blog-grid img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transition: transform 240ms ease;
+}
+
+.image-fallback {
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 70% 18%, rgba(255, 106, 95, 0.16), transparent 7rem),
+    linear-gradient(135deg, #fff7f2, #f2ece7);
+  color: var(--brand);
+  font-weight: 950;
+  letter-spacing: 0.02em;
+}
+
+.category-card > .image-fallback {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  left: 0;
+  min-height: 0;
+  border-radius: 0;
+  padding: 0;
+  font-size: 1rem;
 }
 
 .category-card::after,
@@ -1083,7 +1109,8 @@ p {
   transform: translateY(-3px);
 }
 
-.restaurant-card > img {
+.restaurant-card > img,
+.restaurant-card > .image-fallback {
   height: 118px;
 }
 
@@ -1119,7 +1146,8 @@ p {
   text-transform: uppercase;
 }
 
-.featured-restaurant > img {
+.featured-restaurant > img,
+.featured-restaurant > .image-fallback {
   height: 292px;
 }
 
@@ -1454,6 +1482,11 @@ p {
   border-radius: 12px;
 }
 
+.blog-grid .image-fallback {
+  height: 92px;
+  border-radius: 12px;
+}
+
 .quiet-section {
   gap: 12px;
   border: 1px solid #efe1d8;
@@ -1781,7 +1814,8 @@ p {
   background: var(--soft);
 }
 
-.product-image img {
+.product-image img,
+.product-image .image-fallback {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2096,7 +2130,8 @@ p {
   background: var(--soft);
 }
 
-.cart-thumb img {
+.cart-thumb img,
+.cart-thumb .image-fallback {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2282,7 +2317,8 @@ dd {
   background: #fff2ec;
 }
 
-.modal-product-thumb img {
+.modal-product-thumb img,
+.modal-product-thumb .image-fallback {
   width: 100%;
   height: 100%;
   object-fit: cover;

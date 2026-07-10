@@ -702,9 +702,35 @@ function FlyToCart({ item }: { item: CartFly }) {
       }}
       aria-hidden="true"
     >
-      {item.imageUrl ? <img src={item.imageUrl} alt="" /> : <span>{item.name.slice(0, 2)}</span>}
+      <SafeImage src={item.imageUrl} alt="" fallbackText={item.name} />
     </div>
   );
+}
+
+function SafeImage({
+  src,
+  alt,
+  fallbackText,
+  className,
+  loading
+}: {
+  src?: string | null;
+  alt: string;
+  fallbackText: string;
+  className?: string;
+  loading?: "eager" | "lazy";
+}) {
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+
+  if (!src || failed) {
+    return <span className={`image-fallback ${className ?? ""}`.trim()}>{fallbackText.slice(0, 2).toUpperCase()}</span>;
+  }
+
+  return <img className={className} src={src} alt={alt} loading={loading} onError={() => setFailed(true)} />;
 }
 
 function MenuSection({
@@ -833,7 +859,7 @@ function MenuSection({
           {featuredProduct ? (
             <>
               <div className="hero-canvas">
-                <img className="hero-showcase-image" key={featuredProduct.id} src={featuredProduct.imageUrl ?? ""} alt={featuredProduct.name} />
+                <SafeImage className="hero-showcase-image" key={featuredProduct.id} src={featuredProduct.imageUrl} alt={featuredProduct.name} fallbackText={featuredProduct.name} />
               </div>
               <div className="hero-dish-card" key={`dish-${featuredProduct.id}`}>
                 <span>Chef pick</span>
@@ -874,7 +900,7 @@ function MenuSection({
               type="button"
               style={{ ["--stagger" as string]: `${index * 70}ms` }}
             >
-              {category.imageUrl ? <img src={category.imageUrl} alt="" /> : null}
+              <SafeImage src={category.imageUrl} alt="" fallbackText={category.label} />
               <span>{category.count} Menu Products</span>
               <strong>{category.label}</strong>
             </button>
@@ -894,7 +920,7 @@ function MenuSection({
           {popular.map((product, index) => (
             <article className={`restaurant-card reveal-card ${index === 0 ? "featured-restaurant" : ""}`} key={product.id} style={{ ["--stagger" as string]: `${index * 55}ms` }}>
               <button className="favorite-pill" type="button" aria-label="Add favorite">Fav</button>
-              <img src={product.imageUrl ?? ""} alt={product.name} />
+              <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
               <div>
                 <h3>{product.name}</h3>
                 <p>{product.description}</p>
@@ -916,7 +942,7 @@ function MenuSection({
         <div className="deal-grid">
           {deals.map((product, index) => (
             <article className={`deal-card reveal-card ${index < 2 ? "wide-deal" : ""}`} key={product.id} style={{ ["--stagger" as string]: `${index * 55}ms` }}>
-              <img src={product.imageUrl ?? ""} alt={product.name} />
+              <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
               <span>{10 + index * 5} Mins</span>
               <div>
                 <h3>{product.name}</h3>
@@ -978,7 +1004,7 @@ function MenuSection({
         <div className="blog-grid">
           {stories.map((product) => (
             <article key={product.id}>
-              <img src={product.imageUrl ?? ""} alt={product.name} />
+              <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} />
               <h3>How to enjoy {product.name}</h3>
               <p>{product.description}</p>
             </article>
@@ -1095,7 +1121,7 @@ function LiveMenuSection({
           {fullMenuProducts.map((product, index) => (
             <article className="product-card reveal-card" key={product.id} style={{ ["--stagger" as string]: `${index * 45}ms` }}>
               <div className="product-image">
-                {product.imageUrl ? <img src={product.imageUrl} alt={product.name} loading="lazy" /> : <span>No image</span>}
+                <SafeImage src={product.imageUrl} alt={product.name} fallbackText={product.name} loading="lazy" />
                 {product.variations.length ? <span className="product-badge">Customizable</span> : null}
               </div>
               <div className="product-body">
@@ -1303,7 +1329,7 @@ function CartDrawer({
           {cart.map((line) => (
             <article className="cart-drawer-line" key={line.key}>
               <div className="cart-thumb">
-                {line.product.imageUrl ? <img src={line.product.imageUrl} alt="" /> : <span>{line.product.name.slice(0, 2)}</span>}
+                <SafeImage src={line.product.imageUrl} alt="" fallbackText={line.product.name} />
               </div>
               <div>
                 <h3>{line.product.name}</h3>
@@ -1406,7 +1432,7 @@ function VariationModal({
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="variation-modal-title">
         <div className="modal-heading">
           <div className="modal-product-thumb">
-            {product.imageUrl ? <img src={product.imageUrl} alt="" /> : <span>{product.name.slice(0, 2)}</span>}
+            <SafeImage src={product.imageUrl} alt="" fallbackText={product.name} />
           </div>
           <div className="modal-product-copy">
             <p className="eyebrow">Make it yours</p>
@@ -1518,7 +1544,7 @@ function CartSection({
         {cart.map((line) => (
           <article className="cart-line" key={line.key}>
             <div className="cart-thumb">
-              {line.product.imageUrl ? <img src={line.product.imageUrl} alt="" /> : <span>{line.product.name.slice(0, 2)}</span>}
+              <SafeImage src={line.product.imageUrl} alt="" fallbackText={line.product.name} />
             </div>
             <div>
               <h2>{line.product.name}</h2>
