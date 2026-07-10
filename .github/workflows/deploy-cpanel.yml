@@ -22,7 +22,7 @@ jobs:
       CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
       CPANEL_SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_PRIVATE_KEY }}
       CPANEL_SSH_PRIVATE_KEY_B64: ${{ secrets.CPANEL_SSH_PRIVATE_KEY_B64 }}
-      CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH }}
+      CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH || '/home/afripnxq/demo.ismakfoods.com/standalone' }}
 
     steps:
       - name: Check out repository
@@ -71,6 +71,12 @@ jobs:
           chmod 600 ~/.ssh/cpanel_key
           ssh-keygen -y -f ~/.ssh/cpanel_key > /dev/null
           ssh-keyscan -p "${CPANEL_SSH_PORT:-22}" "$CPANEL_SSH_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure remote application root exists
+        run: |
+          ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
+            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
+            "mkdir -p '$CPANEL_DEPLOY_PATH'"
 
       - name: Deploy standalone app to cPanel
         run: |

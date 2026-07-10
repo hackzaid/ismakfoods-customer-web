@@ -9,7 +9,7 @@ Create these repository secrets in GitHub under `Settings > Secrets and variable
 - `CPANEL_SSH_HOST`: cPanel SSH host, for example `server.example.com`.
 - `CPANEL_SSH_USER`: cPanel SSH username.
 - `CPANEL_SSH_PRIVATE_KEY_B64`: Base64-encoded private SSH key allowed to access the cPanel account.
-- `CPANEL_DEPLOY_PATH`: Absolute cPanel application root, for example `/home/username/demo.ismakfoods.com`.
+- `CPANEL_DEPLOY_PATH`: Absolute cPanel application root. Use `/home/afripnxq/demo.ismakfoods.com/standalone` for this deployment.
 - `CPANEL_SSH_PORT`: Optional SSH port. If omitted, the workflow uses `22`.
 
 `CPANEL_SSH_PRIVATE_KEY` is also supported as a raw multiline private key, but `CPANEL_SSH_PRIVATE_KEY_B64` is preferred because it avoids GitHub secret newline formatting issues.
@@ -52,7 +52,7 @@ Use cPanel's Node.js app screen with these values:
 
 - Node.js version: `22.x`
 - Application mode: `Production`
-- Application root: same path as `CPANEL_DEPLOY_PATH`, for example `/home/afripnxq/demo.ismakfoods.com`
+- Application root: same path as `CPANEL_DEPLOY_PATH`, currently `/home/afripnxq/demo.ismakfoods.com/standalone`
 - Application URL: your domain or subdomain, for example `demo.ismakfoods.com`
 - Application startup file: `server.js`
 
@@ -95,7 +95,7 @@ If a previous deploy created a real `node_modules` directory in the application 
 If the workflow reports that the symlink is missing:
 
 1. Open the cPanel Node.js app screen.
-2. Confirm the application root is correct.
+2. Confirm the application root is `/home/afripnxq/demo.ismakfoods.com/standalone`.
 3. Save the app.
 4. Click `Run NPM Install` once from cPanel so CloudLinux creates its managed dependency symlink.
 5. Rerun the GitHub Action.
