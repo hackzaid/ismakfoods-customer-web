@@ -75,11 +75,12 @@ Every push to `main` runs:
 4. Removes the generated standalone `node_modules` folder from the upload package because CloudLinux requires `node_modules` in the application root to be its own symlink.
 5. Syncs the standalone server files to the cPanel application root with `rsync` over SSH while preserving CloudLinux-managed paths.
 6. Mirrors `.next/static` to the domain document root so LiteSpeed/cPanel can serve `/_next/static/...` directly even when the Node app itself lives in the `standalone` subfolder.
-7. Verifies that every generated file under `.next/static` exists in both the Node app root and the public document root after upload.
-8. Runs `npm install --omit=dev` remotely when CloudLinux's `node_modules` symlink already exists.
-9. If the symlink is missing, the workflow still deploys files and skips install so cPanel can create the symlink from the Node.js app screen.
-10. Touches `tmp/restart.txt` after a successful remote install so Passenger/cPanel restarts the Node.js app.
-11. Loads the public HTTPS URL and verifies the referenced `/_next/static` CSS, JS, and font assets return successful responses.
+7. Normalizes read/execute permissions on `.next` and `public` so cPanel/LiteSpeed can stream static assets.
+8. Verifies that every generated file under `.next/static` exists in both the Node app root and the public document root after upload.
+9. Runs `npm install --omit=dev` remotely when CloudLinux's `node_modules` symlink already exists.
+10. If the symlink is missing, the workflow still deploys files and skips install so cPanel can create the symlink from the Node.js app screen.
+11. Touches `tmp/restart.txt` after a successful remote install so Passenger/cPanel restarts the Node.js app.
+12. Loads the public HTTPS URL and verifies the referenced `/_next/static` CSS, JS, and font assets return successful responses.
 
 You can also run the workflow manually from GitHub Actions using `workflow_dispatch`.
 

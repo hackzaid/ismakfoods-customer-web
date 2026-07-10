@@ -107,6 +107,21 @@ jobs:
             -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
             deploy/.next/static/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$public_root/.next/static/"
 
+          ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
+            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
+            'bash -s' -- "$CPANEL_DEPLOY_PATH" "$public_root" <<'REMOTE'
+          set -e
+
+          CPANEL_DEPLOY_PATH="$1"
+          CPANEL_PUBLIC_ROOT="$2"
+
+          chmod -R u+rwX,go+rX "$CPANEL_DEPLOY_PATH/.next"
+          chmod -R u+rwX,go+rX "$CPANEL_PUBLIC_ROOT/.next"
+          if [ -d "$CPANEL_DEPLOY_PATH/public" ]; then
+            chmod -R u+rwX,go+rX "$CPANEL_DEPLOY_PATH/public"
+          fi
+          REMOTE
+
       - name: Verify uploaded static files on cPanel
         run: |
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
