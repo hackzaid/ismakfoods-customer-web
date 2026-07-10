@@ -26,8 +26,11 @@ import {
   Product,
   ProductOption,
   ProductVariation,
+  registerWithSocialMedia,
   registerWithOtp,
-  searchProducts
+  searchProducts,
+  SocialMedium,
+  socialLogin
 } from "@/lib/api";
 
 type Section = "menu" | "live-menu" | "cart" | "checkout" | "orders" | "profile";
@@ -79,7 +82,62 @@ type CartFly = {
   toY: number;
 };
 
+type SocialProfile = {
+  id: string;
+  name: string;
+  email: string;
+  token: string;
+  medium: Extract<SocialMedium, "google" | "facebook">;
+};
+
+type GoogleTokenResponse = {
+  access_token?: string;
+  error?: string;
+};
+
+type GoogleTokenClient = {
+  requestAccessToken: () => void;
+};
+
+type FacebookLoginResponse = {
+  authResponse?: {
+    accessToken: string;
+    userID: string;
+  };
+  status?: string;
+};
+
+type FacebookProfile = {
+  id?: string;
+  name?: string;
+  email?: string;
+};
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        oauth2?: {
+          initTokenClient: (config: {
+            client_id: string;
+            scope: string;
+            callback: (response: GoogleTokenResponse) => void;
+          }) => GoogleTokenClient;
+        };
+      };
+    };
+    FB?: {
+      init: (config: { appId: string; cookie: boolean; xfbml: boolean; version: string }) => void;
+      login: (callback: (response: FacebookLoginResponse) => void, options: { scope: string }) => void;
+      api: (path: string, params: Record<string, string>, callback: (response: FacebookProfile) => void) => void;
+    };
+    fbAsyncInit?: () => void;
+  }
+}
+
 const TOKEN_KEY = "ismakfoods.customer.token";
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "175077116216-ldqpou5goukij9f3m97b4prc984an6fa.apps.googleusercontent.com";
+const FACEBOOK_APP_ID = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID ?? "";
 const ALL_CATEGORY = "All";
 const CATEGORY_RULES = [
   { label: "Chicken", keywords: ["chicken", "broast", "wings", "grill"] },
@@ -101,6 +159,108 @@ function formatPrice(config: AppConfig | null, amount: number) {
   const rounded = Math.round(amount).toLocaleString();
   const symbol = config?.currencySymbol ?? "UGX";
   return config?.currencySymbolPosition === "right" ? `${rounded} ${symbol}` : `${symbol} ${rounded}`;
+}
+
+function loadExternalScript(id: string, src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (document.getElementById(id)) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = id;
+    script.src = src;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Could not load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function googleProfileFromAccessToken(accessToken: string): Promise<FacebookProfile> {
+  const response = await fetch(`https://www.googleapis.com/oauth2/v3/userinfo?access_token=${encodeURIComponent(accessToken)}`);
+  if (!response.ok) {
+    throw new Error("Google profile could not be loaded.");
+  }
+  const profile = await response.json() as { sub?: string; name?: string; email?: string };
+  return { id: profile.sub, name: profile.name, email: profile.email };
+}
+
+async function requestGoogleProfile(): Promise<SocialProfile> {
+  if (!GOOGLE_CLIENT_ID) {
+    throw new Error("Google login needs NEXT_PUBLIC_GOOGLE_CLIENT_ID.");
+  }
+  await loadExternalScript("google-identity-services", "https://accounts.google.com/gsi/client");
+  const tokenClient = window.google?.accounts?.oauth2?.initTokenClient;
+  if (!tokenClient) {
+    throw new Error("Google Identity Services is unavailable.");
+  }
+
+  return new Promise((resolve, reject) => {
+    const client = tokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: "openid email profile",
+      callback: async (response) => {
+        try {
+          if (response.error || !response.access_token) {
+            throw new Error(response.error || "Google login was cancelled.");
+          }
+          const profile = await googleProfileFromAccessToken(response.access_token);
+          if (!profile.id || !profile.email) {
+            throw new Error("Google did not return an email address.");
+          }
+          resolve({
+            id: profile.id,
+            name: profile.name || profile.email,
+            email: profile.email,
+            token: response.access_token,
+            medium: "google"
+          });
+        } catch (error) {
+          reject(error);
+        }
+      }
+    });
+    client.requestAccessToken();
+  });
+}
+
+async function requestFacebookProfile(): Promise<SocialProfile> {
+  if (!FACEBOOK_APP_ID) {
+    throw new Error("Facebook login needs NEXT_PUBLIC_FACEBOOK_APP_ID.");
+  }
+  await loadExternalScript("facebook-jssdk", "https://connect.facebook.net/en_US/sdk.js");
+  const facebook = window.FB;
+  if (!facebook) {
+    throw new Error("Facebook SDK is unavailable.");
+  }
+  facebook.init({ appId: FACEBOOK_APP_ID, cookie: true, xfbml: false, version: "v19.0" });
+
+  return new Promise((resolve, reject) => {
+    facebook.login((loginResponse) => {
+      const accessToken = loginResponse.authResponse?.accessToken;
+      const userId = loginResponse.authResponse?.userID;
+      if (!accessToken || !userId) {
+        reject(new Error("Facebook login was cancelled."));
+        return;
+      }
+      facebook.api("/me", { fields: "id,name,email" }, (profile) => {
+        if (!profile.id || !profile.email) {
+          reject(new Error("Facebook did not return an email address."));
+          return;
+        }
+        resolve({
+          id: profile.id,
+          name: profile.name || profile.email,
+          email: profile.email,
+          token: accessToken,
+          medium: "facebook"
+        });
+      });
+    }, { scope: "email,public_profile" });
+  });
 }
 
 function lineUnitPrice(line: CartLine) {
@@ -1919,6 +2079,9 @@ function AuthPanel({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
+  const [socialDraft, setSocialDraft] = useState<SocialProfile | null>(null);
+  const [socialPhone, setSocialPhone] = useState("");
+  const [socialBusy, setSocialBusy] = useState<SocialMedium | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1945,6 +2108,56 @@ function AuthPanel({
     }
   }
 
+  async function continueWithSocial(medium: Extract<SocialMedium, "google" | "facebook">) {
+    setError(null);
+    setSocialDraft(null);
+    setSocialBusy(medium);
+    try {
+      const profile = medium === "google" ? await requestGoogleProfile() : await requestFacebookProfile();
+      const result = await socialLogin({
+        token: profile.token,
+        uniqueId: profile.id,
+        email: profile.email,
+        medium: profile.medium
+      });
+      if (result.token) {
+        persistToken(result.token);
+        return;
+      }
+      if (!result.needsRegistration) {
+        throw new Error("This social account needs backend verification before login can continue.");
+      }
+      setSocialDraft(profile);
+      setName(profile.name);
+      setEmail(profile.email);
+      setMode("register");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `${medium} login failed.`);
+    } finally {
+      setSocialBusy(null);
+    }
+  }
+
+  async function completeSocialRegistration(event: FormEvent) {
+    event.preventDefault();
+    if (!socialDraft) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const token = await registerWithSocialMedia(socialDraft.name, socialPhone, socialDraft.email, socialDraft.medium);
+      if (!token) {
+        throw new Error("Social registration completed without a customer token.");
+      }
+      persistToken(token);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Social registration failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel auth-panel">
       <div className="auth-form-side">
@@ -1962,8 +2175,18 @@ function AuthPanel({
           ))}
         </div>
 
-        <form className="stack-form auth-form" onSubmit={submit}>
-          {mode === "password" ? (
+        <form className="stack-form auth-form" onSubmit={socialDraft ? completeSocialRegistration : submit}>
+          {socialDraft ? (
+            <div className="social-complete-card">
+              <span>{socialDraft.medium}</span>
+              <strong>{socialDraft.name}</strong>
+              <small>{socialDraft.email}</small>
+              <p className="muted">Add a phone number to create your Ismak Foods account.</p>
+              <input value={socialPhone} onChange={(event) => setSocialPhone(event.target.value)} placeholder="Phone" required />
+            </div>
+          ) : null}
+
+          {!socialDraft && mode === "password" ? (
             <>
               <input value={identifier} onChange={(event) => setIdentifier(event.target.value)} placeholder="Email or phone" required />
               <input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Password" type="password" required />
@@ -1973,7 +2196,7 @@ function AuthPanel({
             </>
           ) : null}
 
-          {mode === "register" ? (
+          {!socialDraft && mode === "register" ? (
             <>
               <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Full name" required />
               <input value={phone} onChange={(event) => setPhone(event.target.value)} placeholder="Phone" required />
@@ -1983,13 +2206,30 @@ function AuthPanel({
 
           {error ? <p className="form-error">{error}</p> : null}
           <button className="auth-submit" disabled={busy} type="submit">
-            {busy ? "Working..." : mode === "register" ? "Create account" : "Login"}
+            {busy ? "Working..." : socialDraft ? "Complete social signup" : mode === "register" ? "Create account" : "Login"}
           </button>
         </form>
 
+        {!socialDraft ? (
+          <div className="social-auth-block">
+            <div className="auth-divider"><span /> <strong>or continue with</strong> <span /></div>
+            <button className="social-auth-button" disabled={socialBusy !== null || !GOOGLE_CLIENT_ID} onClick={() => continueWithSocial("google")} type="button">
+              <span className="social-mark google-mark">G</span>
+              {socialBusy === "google" ? "Connecting Google..." : "Continue with Google"}
+            </button>
+            <button className="social-auth-button" disabled={socialBusy !== null || !FACEBOOK_APP_ID} onClick={() => continueWithSocial("facebook")} type="button">
+              <span className="social-mark facebook-mark">f</span>
+              {socialBusy === "facebook" ? "Connecting Facebook..." : FACEBOOK_APP_ID ? "Continue with Facebook" : "Facebook app ID required"}
+            </button>
+          </div>
+        ) : null}
+
         <p className="auth-switch-copy">
-          {mode === "register" ? "Already have an account?" : "Do not have an account?"}
-          <button onClick={() => setMode(mode === "register" ? "password" : "register")} type="button">
+          {socialDraft ? "Prefer password login?" : mode === "register" ? "Already have an account?" : "Do not have an account?"}
+          <button onClick={() => {
+            setSocialDraft(null);
+            setMode(mode === "register" ? "password" : "register");
+          }} type="button">
             {mode === "register" ? "Login now" : "Register now"}
           </button>
         </p>

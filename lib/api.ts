@@ -99,6 +99,14 @@ export type AppConfig = {
   customerPaymentOptions?: CustomerPaymentOptionsContract;
 };
 
+export type SocialMedium = "google" | "facebook" | "apple";
+
+export type SocialLoginResult = {
+  token: string;
+  needsRegistration: boolean;
+  tempToken?: string;
+};
+
 export type ProductOption = {
   id: string;
   name: string;
@@ -654,15 +662,33 @@ export async function loginWithPassword(identifier: string, password: string): P
   return text(getPayload(response).token);
 }
 
-export async function socialLogin(idToken: string, email: string | undefined, medium: "google" | "facebook" | "apple"): Promise<string> {
+export async function socialLogin(input: {
+  token: string;
+  uniqueId: string;
+  email?: string;
+  medium: SocialMedium;
+}): Promise<SocialLoginResult> {
   const response = await apiRequest<unknown>("/auth/social-login", {
     method: "POST",
     body: {
-      token: idToken,
-      unique_id: email ?? "web",
-      email,
-      medium
+      token: input.token,
+      unique_id: input.uniqueId,
+      email: input.email,
+      medium: input.medium
     }
+  });
+  const payload = getPayload(response);
+  return {
+    token: text(payload.token),
+    needsRegistration: Boolean(payload.temp_token),
+    tempToken: text(payload.temp_token) || undefined
+  };
+}
+
+export async function registerWithSocialMedia(name: string, phone: string, email: string, medium: SocialMedium): Promise<string> {
+  const response = await apiRequest<unknown>("/auth/registration-with-social-media", {
+    method: "POST",
+    body: { name, phone, email, medium }
   });
   return text(getPayload(response).token);
 }
