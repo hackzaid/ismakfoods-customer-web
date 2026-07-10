@@ -9,9 +9,10 @@ Create these repository secrets in GitHub under `Settings > Secrets and variable
 - `CPANEL_SSH_HOST`: cPanel SSH host, for example `server.example.com`.
 - `CPANEL_SSH_USER`: cPanel SSH username.
 - `CPANEL_SSH_PRIVATE_KEY_B64`: Base64-encoded private SSH key allowed to access the cPanel account.
-- `CPANEL_DEPLOY_PATH`: Absolute cPanel application root. Use `/home/afripnxq/demo.ismakfoods.com/standalone` for this deployment.
-- `CPANEL_PUBLIC_ROOT`: Optional domain document root used for public `/_next/static` assets. If omitted, the workflow uses the parent directory of `CPANEL_DEPLOY_PATH`, currently `/home/afripnxq/demo.ismakfoods.com`.
+- `CPANEL_SSH_TARGET_DIR`: Writable parent deployment directory. Use `/home/afripnxq/demo.ismakfoods.com` for this deployment.
 - `CPANEL_SSH_PORT`: Optional SSH port. If omitted, the workflow uses `22`.
+
+`CPANEL_DEPLOY_PATH` is still supported as a fallback for older configuration. If `CPANEL_SSH_TARGET_DIR` is not set, the workflow derives the parent folder from `CPANEL_DEPLOY_PATH` by removing a trailing `/standalone`.
 
 `CPANEL_SSH_PRIVATE_KEY` is also supported as a raw multiline private key, but `CPANEL_SSH_PRIVATE_KEY_B64` is preferred because it avoids GitHub secret newline formatting issues.
 
@@ -53,7 +54,7 @@ Use cPanel's Node.js app screen with these values:
 
 - Node.js version: `22.x`
 - Application mode: `Production`
-- Application root: same path as `CPANEL_DEPLOY_PATH`, currently `/home/afripnxq/demo.ismakfoods.com/standalone`
+- Application root: `CPANEL_SSH_TARGET_DIR/standalone`, currently `/home/afripnxq/demo.ismakfoods.com/standalone`
 - Application URL: your domain or subdomain, for example `demo.ismakfoods.com`
 - Application startup file: `server.js`
 
@@ -71,31 +72,31 @@ Every push to `main` runs:
 
 1. `npm ci`
 2. `npm run build`, which currently forces `next build --webpack` because the cPanel/LiteSpeed origin returned `500` for specific Turbopack-generated static chunks.
-3. Packages `.next/standalone`, `.next/static`, and `public` into `deploy/`.
-4. Removes the generated standalone `node_modules` folder from the upload package because CloudLinux requires `node_modules` in the application root to be its own symlink.
-5. Syncs the standalone server files to the cPanel application root with `rsync` over SSH while preserving CloudLinux-managed paths.
-6. Mirrors `.next/static` to the domain document root so LiteSpeed/cPanel can serve `/_next/static/...` directly even when the Node app itself lives in the `standalone` subfolder.
-7. Normalizes read/execute permissions on `.next` and `public` so cPanel/LiteSpeed can stream static assets.
-8. Writes `/__deploy.json` with the GitHub SHA and verifies the public domain serves that marker.
-9. Verifies that every generated file under `.next/static` exists in both the Node app root and the public document root after upload.
-10. Runs `npm install --omit=dev` remotely when CloudLinux's `node_modules` symlink already exists.
-11. If the symlink is missing, the workflow still deploys files and skips install so cPanel can create the symlink from the Node.js app screen.
-12. Touches `tmp/restart.txt` after a successful remote install so Passenger/cPanel restarts the Node.js app.
-13. Loads the public HTTPS URL and verifies the referenced `/_next/static` CSS, JS, and font assets return successful responses.
+3. Packages `.next/standalone` into `deploy/standalone`.
+4. Copies `.next/static` into `deploy/standalone/.next/static`.
+5. Copies `public`, `package-lock.json`, `.env.production`, and a deploy marker into `deploy/standalone`.
+6. Removes the generated standalone `node_modules` folder from the artifact because CloudLinux requires `node_modules` in the application root to be its own symlink.
+7. Adds a parent `server.js` wrapper as a fallback, but the intended cPanel app root remains `standalone`.
+8. Tars the artifact as `customer-web-deploy.tar.gz`.
+9. SSHes into cPanel, creates/checks `CPANEL_SSH_TARGET_DIR`, uploads the tarball with `scp`, then extracts it.
+10. Preserves CloudLinux's managed `standalone/node_modules` symlink.
+11. Runs `npm ci --omit=dev` only when the symlink exists and `npm` is available in SSH.
+12. Touches `standalone/tmp/restart.txt` and parent `tmp/restart.txt` so Passenger/cPanel restarts the Node.js app.
+13. Verifies the uploaded static manifest and deploy marker on cPanel.
+14. Loads the public HTTPS URL and verifies `/__deploy.json` plus the referenced `/_next/static` CSS, JS, and font assets return successful responses.
 
 You can also run the workflow manually from GitHub Actions using `workflow_dispatch`.
 
 ## cPanel Notes
 
 - cPanel should be configured as a Node.js application.
-- The application root should match `CPANEL_DEPLOY_PATH`.
+- The application root should be `CPANEL_SSH_TARGET_DIR/standalone`.
 - The application startup file should be `server.js`.
 - Create/save the cPanel Node.js app before deploying so CloudLinux creates its managed `node_modules` symlink.
 - Do not manually upload a real `node_modules` directory into the application root.
-- GitHub Actions runs `npm install --omit=dev` on the server after upload so dependencies land in CloudLinux's managed dependency folder.
-- The cPanel server must allow SSH access and have `rsync` available. If `rsync` is unavailable, the deploy step can be changed to an `scp` upload.
-- If the public HTTPS smoke test reports `500` for `/_next/static/...`, the HTML is deployed but the static asset pair is not being served correctly from the cPanel origin. Check that `.next/static` exists both inside the Node app root and the domain document root, then restart the Node.js app and purge any Cloudflare cache if needed.
-- If `/__deploy.json` is missing or shows an old SHA, the public domain is not serving the files uploaded by the current workflow. In that case, update either the GitHub `CPANEL_DEPLOY_PATH` secret or the cPanel Node.js Application root so both point to the same directory.
+- GitHub Actions runs `npm ci --omit=dev` on the server after upload only when CloudLinux's managed symlink and `npm` are both available.
+- The cPanel server must allow SSH and SCP access.
+- If `/__deploy.json` is missing or shows an old SHA, the public domain is not serving the files uploaded by the current workflow. In that case, update either the GitHub `CPANEL_SSH_TARGET_DIR` secret or the cPanel Node.js Application root so both point to the same deployment.
 
 ## CloudLinux node_modules Recovery
 

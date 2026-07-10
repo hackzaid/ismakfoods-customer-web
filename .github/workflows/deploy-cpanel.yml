@@ -7,13 +7,15 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: cpanel-deploy
+  group: customer-web-cpanel-deploy
   cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  deploy:
+    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]') }}
     name: Build standalone app and deploy over SSH
     runs-on: ubuntu-latest
+
     env:
       NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL || 'https://api.ismakfoods.com/api/v1' }}
       NEXT_PUBLIC_API_ORIGIN: ${{ vars.NEXT_PUBLIC_API_ORIGIN || 'https://api.ismakfoods.com' }}
@@ -22,15 +24,15 @@ jobs:
       CPANEL_SSH_PORT: ${{ secrets.CPANEL_SSH_PORT }}
       CPANEL_SSH_PRIVATE_KEY: ${{ secrets.CPANEL_SSH_PRIVATE_KEY }}
       CPANEL_SSH_PRIVATE_KEY_B64: ${{ secrets.CPANEL_SSH_PRIVATE_KEY_B64 }}
+      CPANEL_SSH_TARGET_DIR: ${{ secrets.CPANEL_SSH_TARGET_DIR }}
       CPANEL_DEPLOY_PATH: ${{ secrets.CPANEL_DEPLOY_PATH || '/home/afripnxq/demo.ismakfoods.com/standalone' }}
-      CPANEL_PUBLIC_ROOT: ${{ secrets.CPANEL_PUBLIC_ROOT }}
       DEPLOY_VERIFY_URL: ${{ vars.DEPLOY_VERIFY_URL || 'https://demo.ismakfoods.com' }}
 
     steps:
-      - name: Check out repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -42,32 +44,51 @@ jobs:
       - name: Build standalone app
         run: npm run build
 
-      - name: Prepare cPanel deploy artifact
+      - name: Package deployment artifact
         run: |
-          rm -rf deploy
-          mkdir -p deploy/.next deploy/public
-          cp -R .next/standalone/. deploy/
-          rm -rf deploy/node_modules
-          cp -R .next/static deploy/.next/static
-          cp package-lock.json deploy/package-lock.json
+          set -euo pipefail
+
+          rm -rf deploy customer-web-deploy.tar.gz
+          mkdir -p deploy/standalone/.next deploy/standalone/public
+
+          cp -R .next/standalone/. deploy/standalone/
+          rm -rf deploy/standalone/node_modules
+          cp package-lock.json deploy/standalone/package-lock.json
+          cp -R .next/static deploy/standalone/.next/static
+
           if [ -d public ]; then
-            cp -R public deploy/public
+            cp -R public/. deploy/standalone/public/
           fi
-          cat > deploy/public/__deploy.json <<EOF
+
+          cat > deploy/standalone/.env.production <<EOF
+          NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+          NEXT_PUBLIC_API_ORIGIN=${NEXT_PUBLIC_API_ORIGIN}
+          EOF
+
+          cat > deploy/standalone/public/__deploy.json <<EOF
           {"sha":"$GITHUB_SHA","run_id":"$GITHUB_RUN_ID","run_attempt":"$GITHUB_RUN_ATTEMPT","built_at":"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"}
           EOF
-          find deploy/.next/static -type f -printf '%P\n' | sort > deploy/.deploy-static-files
+
+          find deploy/standalone/.next/static -type f -printf '%P\n' | sort > deploy/standalone/.deploy-static-files
+
+          cat > deploy/server.js <<'EOF'
+          require('./standalone/server.js');
+          EOF
+
+          cp deploy/standalone/public/__deploy.json deploy/__deploy.json
+          tar -czf customer-web-deploy.tar.gz -C deploy .
 
       - name: Configure SSH key
         run: |
+          set -euo pipefail
+
           : "${CPANEL_SSH_HOST:?Missing CPANEL_SSH_HOST secret}"
           : "${CPANEL_SSH_USER:?Missing CPANEL_SSH_USER secret}"
-          : "${CPANEL_DEPLOY_PATH:?Missing CPANEL_DEPLOY_PATH secret}"
           mkdir -p ~/.ssh
 
-          if [ -n "$CPANEL_SSH_PRIVATE_KEY_B64" ]; then
+          if [ -n "${CPANEL_SSH_PRIVATE_KEY_B64:-}" ]; then
             printf '%s' "$CPANEL_SSH_PRIVATE_KEY_B64" | base64 --decode > ~/.ssh/cpanel_key
-          elif [ -n "$CPANEL_SSH_PRIVATE_KEY" ]; then
+          elif [ -n "${CPANEL_SSH_PRIVATE_KEY:-}" ]; then
             printf '%s\n' "$CPANEL_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/cpanel_key
           else
             echo "Missing CPANEL_SSH_PRIVATE_KEY_B64 or CPANEL_SSH_PRIVATE_KEY secret." >&2
@@ -78,85 +99,127 @@ jobs:
           ssh-keygen -y -f ~/.ssh/cpanel_key > /dev/null
           ssh-keyscan -p "${CPANEL_SSH_PORT:-22}" "$CPANEL_SSH_HOST" >> ~/.ssh/known_hosts
 
-      - name: Ensure remote application root exists
+      - name: Prepare remote directory
         run: |
-          ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
-            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
-            "mkdir -p '$CPANEL_DEPLOY_PATH'"
+          set -euo pipefail
 
-      - name: Deploy standalone app to cPanel
-        run: |
-          rsync -az --delete \
-            --checksum \
-            --exclude='.htaccess' \
-            --exclude='tmp/' \
-            --exclude='logs/' \
-            --exclude='nodevenv/' \
-            --exclude='node_modules' \
-            --exclude='.well-known/' \
-            -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
-            deploy/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$CPANEL_DEPLOY_PATH/"
-
-      - name: Mirror Next static assets to public root
-        run: |
-          public_root="${CPANEL_PUBLIC_ROOT:-$(dirname "$CPANEL_DEPLOY_PATH")}"
+          deploy_path="${CPANEL_DEPLOY_PATH%/}"
+          target_dir="${CPANEL_SSH_TARGET_DIR:-${deploy_path%/standalone}}"
 
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
-            "mkdir -p '$public_root/.next/static'"
+            "mkdir -p '$target_dir' && test -w '$target_dir'"
 
-          rsync -az --delete \
-            --checksum \
-            -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
-            deploy/.next/static/ "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$public_root/.next/static/"
+      - name: Upload artifact
+        run: |
+          set -euo pipefail
 
-          rsync -az \
-            --checksum \
-            -e "ssh -i ~/.ssh/cpanel_key -p ${CPANEL_SSH_PORT:-22}" \
-            deploy/public/__deploy.json "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$public_root/__deploy.json"
+          deploy_path="${CPANEL_DEPLOY_PATH%/}"
+          target_dir="${CPANEL_SSH_TARGET_DIR:-${deploy_path%/standalone}}"
+
+          scp -i ~/.ssh/cpanel_key -P "${CPANEL_SSH_PORT:-22}" customer-web-deploy.tar.gz \
+            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST:$target_dir/customer-web-deploy.tar.gz"
+
+      - name: Extract and restart Node app
+        run: |
+          set -euo pipefail
+
+          deploy_path="${CPANEL_DEPLOY_PATH%/}"
+          target_dir="${CPANEL_SSH_TARGET_DIR:-${deploy_path%/standalone}}"
 
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
-            'bash -s' -- "$CPANEL_DEPLOY_PATH" "$public_root" <<'REMOTE'
-          set -e
+            'bash -s' -- "$target_dir" "$GITHUB_SHA" <<'REMOTE'
+          set -euo pipefail
 
-          CPANEL_DEPLOY_PATH="$1"
-          CPANEL_PUBLIC_ROOT="$2"
+          target_dir="$1"
+          github_sha="$2"
 
-          chmod -R u+rwX,go+rX "$CPANEL_DEPLOY_PATH/.next"
-          chmod -R u+rwX,go+rX "$CPANEL_PUBLIC_ROOT/.next"
-          if [ -d "$CPANEL_DEPLOY_PATH/public" ]; then
-            chmod -R u+rwX,go+rX "$CPANEL_DEPLOY_PATH/public"
+          cd "$target_dir"
+
+          rm -rf .next .env.production DEPLOYMENT.txt package.json package-lock.json public server.js .deploy-static-files __deploy.json
+          if [ -e node_modules ] && [ ! -L node_modules ]; then
+            rm -rf node_modules
           fi
-          if [ -f "$CPANEL_PUBLIC_ROOT/__deploy.json" ]; then
-            chmod u+rw,go+r "$CPANEL_PUBLIC_ROOT/__deploy.json"
+
+          mkdir -p standalone
+          cd standalone
+          if [ -e node_modules ] && [ ! -L node_modules ]; then
+            rm -rf node_modules
           fi
+          find . -mindepth 1 -maxdepth 1 ! -name 'tmp' ! -name 'node_modules' -exec rm -rf {} +
+
+          cd ..
+          tar -xzf customer-web-deploy.tar.gz
+          rm -f customer-web-deploy.tar.gz
+
+          chmod -R u+rwX,go+rX .next 2>/dev/null || true
+          chmod -R u+rwX,go+rX public 2>/dev/null || true
+          chmod -R u+rwX,go+rX standalone/.next
+          chmod -R u+rwX,go+rX standalone/public
+          chmod u+rw,go+r __deploy.json standalone/public/__deploy.json
+
+          cd standalone
+          if [ -L node_modules ] && command -v npm >/dev/null 2>&1; then
+            npm ci --omit=dev --no-audit --no-fund
+          elif [ -L node_modules ]; then
+            echo "::warning::CloudLinux node_modules symlink exists, but npm is not available in this SSH shell. Use cPanel's NPM Install action when package dependencies change."
+          else
+            echo "::warning::CloudLinux node_modules symlink is missing. Create the Node.js app with application root '$target_dir/standalone' and run NPM Install once."
+          fi
+
+          printf 'Ismak Foods customer web deployed from %s at %s\n' "$github_sha" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" > DEPLOYMENT.txt
+          mkdir -p tmp
+          touch tmp/restart.txt
+
+          cd ..
+          mkdir -p tmp
+          touch tmp/restart.txt
+
+          echo "Standalone deployment target contents:"
+          cd standalone
+          ls -ld node_modules 2>/dev/null || true
+          find . -maxdepth 2 -mindepth 1 -print | sort | sed 's#^\./##' | head -80
+          echo "Parent deployment target contents:"
+          cd ..
+          find . -maxdepth 1 -mindepth 1 -print | sort | sed 's#^\./##' | head -40
           REMOTE
 
-      - name: Verify uploaded static files on cPanel
+      - name: Verify uploaded files on cPanel
         run: |
+          set -euo pipefail
+
+          deploy_path="${CPANEL_DEPLOY_PATH%/}"
+          target_dir="${CPANEL_SSH_TARGET_DIR:-${deploy_path%/standalone}}"
+
           ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
             "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
-            'bash -s' -- "$CPANEL_DEPLOY_PATH" "${CPANEL_PUBLIC_ROOT:-}" <<'REMOTE'
-          set -e
+            'bash -s' -- "$target_dir" "$GITHUB_SHA" <<'REMOTE'
+          set -euo pipefail
 
-          CPANEL_DEPLOY_PATH="$1"
-          CPANEL_PUBLIC_ROOT="${2:-$(dirname "$CPANEL_DEPLOY_PATH")}"
-          cd "$CPANEL_DEPLOY_PATH"
+          target_dir="$1"
+          expected_sha="$2"
+          cd "$target_dir/standalone"
 
           if [ ! -s .deploy-static-files ]; then
-            echo 'Missing deployed static manifest .deploy-static-files.' >&2
+            echo 'Missing deployed static manifest standalone/.deploy-static-files.' >&2
+            exit 1
+          fi
+
+          if ! grep -q "$expected_sha" public/__deploy.json; then
+            echo "standalone/public/__deploy.json does not contain expected sha $expected_sha" >&2
+            exit 1
+          fi
+
+          if ! grep -q "$expected_sha" ../__deploy.json; then
+            echo "parent __deploy.json does not contain expected sha $expected_sha" >&2
             exit 1
           fi
 
           missing=0
           while IFS= read -r file; do
             if [ ! -s ".next/static/$file" ]; then
-              echo "Missing or empty static file: .next/static/$file" >&2
-              missing=1
-            fi
-            if [ ! -s "$CPANEL_PUBLIC_ROOT/.next/static/$file" ]; then
-              echo "Missing or empty public static file: $CPANEL_PUBLIC_ROOT/.next/static/$file" >&2
+              echo "Missing or empty static file: standalone/.next/static/$file" >&2
               missing=1
             fi
           done < .deploy-static-files
@@ -164,56 +227,11 @@ jobs:
           exit "$missing"
           REMOTE
 
-      - name: Install dependencies when CloudLinux symlink exists
-        run: |
-          ssh -i ~/.ssh/cpanel_key -p "${CPANEL_SSH_PORT:-22}" \
-            "$CPANEL_SSH_USER@$CPANEL_SSH_HOST" \
-            'bash -s' -- "$CPANEL_DEPLOY_PATH" <<'REMOTE'
-          set -e
-
-          CPANEL_DEPLOY_PATH="$1"
-          cd "$CPANEL_DEPLOY_PATH"
-
-          if [ -d node_modules ] && [ ! -L node_modules ]; then
-            echo 'Removing real node_modules directory left by a previous deploy.'
-            rm -rf node_modules
-          fi
-
-          if [ ! -L node_modules ]; then
-            echo 'CloudLinux node_modules symlink is missing. Files were deployed, but dependencies were not installed. Save the Node.js app in cPanel and click Run NPM Install once.'
-            mkdir -p tmp
-            touch tmp/restart.txt
-            exit 0
-          fi
-
-          if ! command -v npm >/dev/null 2>&1; then
-            app_relative="${CPANEL_DEPLOY_PATH#$HOME/}"
-            for activate in "$HOME/nodevenv/$app_relative/"*/bin/activate "$HOME/nodevenv/$app_relative/bin/activate"; do
-              if [ -f "$activate" ]; then
-                # CloudLinux exposes npm through the Node.js Selector virtualenv.
-                . "$activate"
-                break
-              fi
-            done
-          fi
-
-          if ! command -v npm >/dev/null 2>&1; then
-            echo 'npm is not available in this SSH shell. Files were deployed; use cPanel Run NPM Install for dependency changes.'
-            mkdir -p tmp
-            touch tmp/restart.txt
-            exit 0
-          fi
-
-          npm install --omit=dev --no-audit --no-fund
-          mkdir -p tmp
-          touch tmp/restart.txt
-          REMOTE
-
       - name: Verify public HTTPS assets
         run: |
           python3 - <<'PY'
-          import os
           import json
+          import os
           import re
           import sys
           import time
@@ -225,7 +243,7 @@ jobs:
           expected_sha = os.environ["GITHUB_SHA"]
           static_manifest = {
               f"/_next/static/{line.strip()}"
-              for line in Path("deploy/.deploy-static-files").read_text(encoding="utf-8").splitlines()
+              for line in Path("deploy/standalone/.deploy-static-files").read_text(encoding="utf-8").splitlines()
               if line.strip()
           }
 
@@ -300,7 +318,7 @@ jobs:
                       errors.append(f"HEAD {url} returned unexpected content-type {content_type!r}")
 
               if not errors:
-                  print(f"Verified {len(asset_paths)} public Next.js static assets from {base_url}.")
+                  print(f"Verified public deploy marker and {len(asset_paths)} Next.js static assets from {base_url}.")
                   sys.exit(0)
 
               print(f"Deploy smoke attempt {attempt} failed:")
