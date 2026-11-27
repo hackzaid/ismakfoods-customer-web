@@ -95,6 +95,17 @@ export type AppConfig = {
     facebook: boolean;
     apple: boolean;
   };
+  loginOptions: {
+    manual: boolean;
+    otp: boolean;
+    social: boolean;
+  };
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  openTime?: string | null;
+  closeTime?: string | null;
+  maintenance: boolean;
   paymentGatewayContract?: PaymentGatewayContract;
   customerPaymentOptions?: CustomerPaymentOptionsContract;
 };
@@ -136,7 +147,27 @@ export type Product = {
   restaurantName: string;
   deliveryEta: string;
   variations: ProductVariation[];
+  categoryIds: number[];
+  available: boolean;
+  recommended: boolean;
 };
+
+export type Category = {
+  id: number;
+  name: string;
+  priority: number;
+  imageUrl?: string | null;
+};
+
+function normalizeCategory(entry: unknown, imageBase?: string | null): Category {
+  const record = getPayload(entry);
+  return {
+    id: number(record.id),
+    name: text(record.name),
+    priority: number(record.priority, 99),
+    imageUrl: text(record.image) ? getPublicAssetUrl(text(record.image), imageBase ?? `${API_ORIGIN}/storage-proxy.php?path=category`) : null
+  };
+}
 
 export type Address = {
   id: number;
@@ -326,10 +357,19 @@ export async function apiRequest<T>(path: string, options: ApiOptions = {}): Pro
   }
 }
 
-export async function serverApiRequest<T>(path: string): Promise<T> {
-  const response = await fetch(apiPath(path), {
-    headers: { Accept: "application/json" },
-    cache: "no-store"
+export async function serverApiRequest<T>(
+  path: string,
+  options: { branchId?: number | null; query?: Record<string, string | number>; revalidate?: number } = {}
+): Promise<T> {
+  const url = new URL(apiPath(path));
+  Object.entries(options.query ?? {}).forEach(([key, value]) => url.searchParams.set(key, String(value)));
+  const response = await fetch(url.toString(), {
+    headers: {
+      Accept: "application/json",
+      "X-localization": "en",
+      ...(options.branchId ? { "branch-id": String(options.branchId), branch_id: String(options.branchId) } : {})
+    },
+    next: { revalidate: options.revalidate ?? 60 }
   });
   if (!response.ok) {
     throw new Error(`API request failed with ${response.status}`);
@@ -446,6 +486,21 @@ export function normalizeConfig(raw: unknown): AppConfig {
       facebook: bool((record.social_login as Record<string, unknown> | undefined)?.facebook),
       apple: bool((record.apple_login as Record<string, unknown> | undefined)?.status)
     },
+    loginOptions: (() => {
+      const options = getPayload(getPayload(record.customer_login).login_option);
+      const hasOptions = Object.keys(options).length > 0;
+      return {
+        manual: hasOptions ? bool(options.manual_login) : true,
+        otp: hasOptions ? bool(options.otp_login) : false,
+        social: hasOptions ? bool(options.social_media_login) : true
+      };
+    })(),
+    phone: text(record.restaurant_phone) || null,
+    email: text(record.restaurant_email) || null,
+    address: text(record.restaurant_address) || null,
+    openTime: text(record.restaurant_open_time) || null,
+    closeTime: text(record.restaurant_close_time) || null,
+    maintenance: bool(record.maintenance_mode),
     paymentGatewayContract: normalizePaymentGatewayContract(record.payment_gateway_contract),
     customerPaymentOptions: normalizeCustomerPaymentOptions(record.customer_payment_options)
   };
@@ -454,6 +509,24 @@ export function normalizeConfig(raw: unknown): AppConfig {
 export async function getConfig(): Promise<AppConfig> {
   const raw = await serverApiRequest<unknown>("/config");
   return normalizeConfig(raw);
+}
+
+/** Server-side menu load for the default branch, so the menu is in the first HTML response. */
+export async function getServerMenu(config: AppConfig, branchId: number | null): Promise<{ categories: Category[]; products: Product[] }> {
+  const [rawCategories, rawProducts] = await Promise.all([
+    serverApiRequest<unknown>("/categories", { branchId, query: { limit: 100, offset: 1 } }),
+    serverApiRequest<unknown>("/products/latest", { branchId, query: { limit: 200, offset: 1 } })
+  ]);
+  const categoryPayload = getPayload(rawCategories);
+  const categories = (asArray(categoryPayload.categories).length ? asArray(categoryPayload.categories) : asArray(rawCategories))
+    .map((entry) => normalizeCategory(entry, config.baseUrls.category_image_url))
+    .filter((category) => category.id > 0 && category.name)
+    .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name));
+  const productPayload = getPayload(rawProducts);
+  const products = (asArray(productPayload.products).length ? asArray(productPayload.products) : asArray(rawProducts))
+    .map((entry) => normalizeProduct(entry, config))
+    .filter((product) => product.id > 0);
+  return { categories, products };
 }
 
 export function normalizeProduct(raw: unknown, config: AppConfig): Product {
@@ -474,8 +547,62 @@ export function normalizeProduct(raw: unknown, config: AppConfig): Product {
     rating: number((Array.isArray(record.rating) ? getPayload(record.rating[0]) : getPayload(record.rating)).average ?? record.avg_rating, 4.7),
     restaurantName: text(record.restaurant_name ?? record.branch_name, config.restaurantName),
     deliveryEta: `${prep}-${prep + 10} min`,
-    variations: normalizeProductVariations(record)
+    variations: normalizeProductVariations(record),
+    categoryIds: asArray(record.category_ids)
+      .map((entry) => number(getPayload(entry).id ?? entry))
+      .filter((id) => id > 0),
+    recommended: bool(record.is_recommended),
+    available: Object.keys(branchProduct).length ? bool(branchProduct.is_available ?? 1) && number(record.status, 1) === 1 : number(record.status, 1) === 1
   };
+}
+
+export async function fetchCategories(branchId?: number | null, imageBase?: string | null): Promise<Category[]> {
+  const raw = await apiRequest<unknown>("/categories", { branchId, query: { limit: 100, offset: 1 } });
+  const payload = getPayload(raw);
+  const source = asArray(payload.categories).length ? asArray(payload.categories) : asArray(raw);
+  return source
+    .map((entry) => normalizeCategory(entry, imageBase))
+    .filter((category) => category.id > 0 && category.name)
+    .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name));
+}
+
+export async function fetchMenu(config: AppConfig, branchId?: number | null): Promise<Product[]> {
+  const raw = await apiRequest<unknown>("/products/latest", {
+    query: { limit: 200, offset: 1 },
+    branchId
+  });
+  const payload = getPayload(raw);
+  const source = asArray(payload.products).length ? asArray(payload.products) : asArray(raw);
+  return source.map((entry) => normalizeProduct(entry, config)).filter((product) => product.id > 0);
+}
+
+export type CustomerInfo = {
+  name: string;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  email: string;
+};
+
+export async function fetchCustomerInfo(token: string): Promise<CustomerInfo> {
+  const record = getPayload(await apiRequest<unknown>("/customer/info", { token }));
+  const firstName = text(record.f_name);
+  const lastName = text(record.l_name);
+  return {
+    name: [firstName, lastName].filter(Boolean).join(" ") || text(record.name),
+    firstName,
+    lastName,
+    phone: text(record.phone),
+    email: text(record.email)
+  };
+}
+
+export async function updateCustomerInfo(token: string, input: { firstName: string; lastName: string; phone: string; email: string }): Promise<void> {
+  await apiRequest<unknown>("/customer/update-profile", {
+    method: "PUT",
+    token,
+    body: { f_name: input.firstName, l_name: input.lastName, phone: input.phone, email: input.email }
+  });
 }
 
 function optionPrice(option: Record<string, unknown>): number {
